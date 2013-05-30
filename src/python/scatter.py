@@ -23,6 +23,7 @@ except ImportError as e:
     GPU = False
 
 
+
 def simulate_shot(traj, num_molecules, detector, traj_weights=None,
                   finite_photon=False, force_no_gpu=False, device_id=0):
     """
