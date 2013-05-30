@@ -50,8 +50,6 @@ Bcinterp::Bcinterp( int Nvals, float *vals, float x_space_, float y_space_,
 	
 	int x, y;
 	float dx, dy, dxdy;
-	float a00, a10, a20, a30, a01, a11, a21, a31;
-    float a02, a12, a22, a32, a03, a13, a23, a33;
     float * I = vals; // for legacy reasons
 
     // compute the finite difference derivatives for interior of the grid	
@@ -62,7 +60,7 @@ Bcinterp::Bcinterp( int Nvals, float *vals, float x_space_, float y_space_,
 			dx = ( F(I,x+1,y) - F(I,x-1,y) ) / 2.0;
 			dy = ( F(I,x,y+1) - F(I,x,y-1) ) / 2.0;
 			dxdy = ( F(I,x+1,y+1) - F(I,x+1,y-1) - F(I,x-1,y+1) + F(I,x-1,y-1) ) / 4.0;
-
+            
 			dIdx[y*Xdim + x]   = dx;
 			dIdy[y*Xdim + x]   = dy;
 			dIdxdy[y*Xdim + x] = dxdy;
@@ -145,11 +143,14 @@ Bcinterp::Bcinterp( int Nvals, float *vals, float x_space_, float y_space_,
     size_alphas = (Ydim-1) * (Xdim-1) * 16;
     alphas.resize(size_alphas, 0.0); // generate a vector len aN of zeros
 
+	float a00, a10, a20, a30, a01, a11, a21, a31;
+    float a02, a12, a22, a32, a03, a13, a23, a33;
+    int k;
 	
     for( y = 0; y < Ydim-1; y++ ) {
-        // #pragma omp parallel for shared(x, dx, dy, dxdy, dIdx, dIdy, dIdxdy)
+        // #pragma omp parallel for private(x, k, a00, a10, a20, a30, a01, a11, a21, a31, a02, a12, a22, a32, a03, a13, a23, a33) shared(y, dIdx, dIdy, dIdxdy)
         for( x = 0; x < Xdim-1; x++ ) {
-
+            
 			a00 =    F(I,x,y);
 			a10 =    F(dIdx,x,y);
 			a20 = -3*F(I,x,y)      + 3*F(I,x+1,y)      - 2*F(dIdx,x,y)    -    F(dIdx,x+1,y);
@@ -192,7 +193,7 @@ Bcinterp::Bcinterp( int Nvals, float *vals, float x_space_, float y_space_,
             }
             
             // #pragma omp critical
-            {
+            // {
             alphas[k] = a00;
             alphas[k+1] = a10;
             alphas[k+2] = a20;
@@ -209,7 +210,7 @@ Bcinterp::Bcinterp( int Nvals, float *vals, float x_space_, float y_space_,
             alphas[k+13] = a13;
             alphas[k+14] = a23;
             alphas[k+15] = a33;
-            }
+            // }
 	    }
 	}
 
@@ -308,7 +309,7 @@ void Bcinterp::evaluate_array(int dim_xa, float *xa, int dim_ya, float *ya,
         throw std::invalid_argument("xa, ya, za must all be same dimension");
     }
         
-    // #pragma omp parallel for shared(za)
+    #pragma omp parallel for shared(za)
     for( int i = 0; i < dim_za; i++ ) {
         za[i] = evaluate_point(xa[i], ya[i]);
     }
