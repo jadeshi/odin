@@ -10,8 +10,8 @@ int main(){
 
     cout << "running test...\n";
 
-    int Xdim = 1000;
-    int Ydim = 1000;
+    int Xdim = 5000;
+    int Ydim = 5000;
     int Nvals = Xdim * Ydim;
         
     float * vals = new float [Nvals];
@@ -39,7 +39,6 @@ int main(){
     y = 2.0;
     i = bc.evaluate_point(x, y);
     cout << "(20.3, 2.0): " << i << endl;
-
 
     delete [] vals;
 
