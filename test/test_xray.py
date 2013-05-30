@@ -285,6 +285,7 @@ class TestShotset(object):
         assert ip[1] > ip[0]
         assert ip[1] > ip[2]
 
+    @skip
     def test_interpolation_consistency(self):
         # TJL warning: these methods are working, but this test is *weak*
         #              I am not sure why turning up the tol causes fails :(
