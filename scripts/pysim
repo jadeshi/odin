@@ -1,0 +1,140 @@
+#!/usr/bin/env python
+
+"""
+Randomly places molecules in space with a certain density, Boltzmann distribution and computes the scattering in the concentrated limit.
+This method does not use cython-made c wrappers, instead it relies on numpy and will therefore have horrible memory mangement. BEWARE if you are trying to simulate a big system, as you might not have enough RAM!
+This method does not compute exact atomic form factors but instead approximates each atoms form factor as that of nitrogen.
+"""
+
+from odin.structure import multiply_conformations, load_coor
+from odin.scatter import atomic_formfactor as AF
+from odin.utils import odinparser
+from odin.xray import _q_grid_as_xyz as QXYZ
+from odin.xray import Beam,Rings
+import numpy as np
+
+def main(num_shot, traj_1, num_mol, dens, energy, qs, num_phi, outfile ):
+    
+    intens = np.zeros( (num_shot, qs.shape[0], num_phi) )
+    
+    for i in xrange( num_shot ) :
+        traj_2        = multiply_conformations( traj_1, num_mol, dens )
+
+        xyz           = traj_2.xyz.reshape( (-1,3) ) * 10 # convert to angstroms for scattering sims
+        intens[i,:,:] = RingSim( energy, qs , num_phi, xyz)
+    
+    r = Rings (qs, intens, Beam(-1,energy=energy).k )
+    r.save( outfile)
+
+def RingSim( energy, qs, num_phi, xyz ):
+    """
+    Performs a rings simulation using python.
+
+    Parameters
+    ----------
+    enery : float
+        energy in keV of the xray beam.
+
+    qs : np.array, float
+        a list of q values specifying which rings to simulate 
+        onto ( inverse angstroms).
+
+    num_phi : int
+        number of polar pixels around each ring.
+
+    xyz : np.array, float
+        atomic positions of sample; shape =  ( num_atoms, 3).
+    
+    Returns
+    -------
+    pol_inten : np.array, shape( len(qs), num_phi )
+        the scattering intensities.
+    """
+    
+    qs       = np.array( qs )
+    num_q    = qs.shape[0]
+    num_atom = xyz.shape[0]
+    q_vec     = QXYZ(  qs, num_phi, Beam(-1,energy=energy).k ).reshape( (num_q, num_phi, 3 )  )
+ 
+    pol_inten = np.zeros( (num_q, num_phi)  )
+    
+    for i_q in xrange( num_q ):
+        print "computing scattering at q =", qs[i_q]
+        amps = np.dot( q_vec[i_q], xyz.T )
+        amps = np.exp(  1j * amps  )
+        amps = np.sum( amps, axis = 1 ) # approximates form factor as nitorgen
+        pol_inten[i_q,:]  = AF( 7, qs[i_q] )**2 * np.abs( amps ) **2
+    return pol_inten
+
+
+if __name__ == '__main__':
+    
+    parser = odinparser('Make a odin .ring file containing the scattering from a system of molecules in the concentrated limit.')
+    
+    parser.add_argument('-i', '--input', type=str, 
+                        help='A .coor file containing the atomic positions of a single molecule.')
+    
+    parser.add_argument('-n', '--num_mol', type=int, 
+                        help='The number of molecules to include in the ensemble.')
+    
+    parser.add_argument('-m', '--num_shot', type=int, 
+                        help='The number of shots/exposures.')
+    
+    parser.add_argument('-p', '--num_phi', type=int, 
+                        help='The number of point pixels around each ring.')
+    
+    parser.add_argument('-d', '--density', type=float, 
+                        help='The ensemble density, in micromolar.')
+    
+    parser.add_argument('-e', '--energy', type=float, 
+                        help='The energy of the beam in keV.')
+    
+    parser.add_argument('-q', '--qfile', type=str, 
+                        help='The name of a file containing the q_values (1 per line, in inverse angstroms ).')
+    
+    parser.add_argument('-o', '--output', default=None,
+                        help='ring file to write output to.')
+
+    args = parser.parse_args()
+    
+    if args.input.endswith('.coor') or args.input.endswith('.xyz'):
+        input_traj = load_coor(args.input) # loads xyz in nm
+    else:
+        raise ValueError('input file must be .coor' )
+
+    if args.num_mol == None:
+        raise ValueError('Pass a number of molecules using -n.')
+
+    if type(args.num_mol) != np.int:
+        raise ValueError( '-n option: number of molecules must be type int.' )
+   
+    if args.num_shot == None:
+        raise ValueError('Pass a number of shots/exposures using -m.')
+    
+    if type(args.num_shot) != np.int:
+        raise ValueError( '-m option: number of shots must be type int.' )
+   
+    if args.num_phi == None:
+        raise ValueError('Pass a number of pixels per ring using -p.')
+   
+    if type(args.num_phi) != np.int:
+        raise ValueError( '-p option: number of ring pixels must be type int.' )
+    
+    if args.density == None:
+        raise ValueError('Pass a density in micro molar using -d.')
+   
+    if args.energy == None:
+        raise ValueError('Pass a energy in angstrom using -e')
+   
+    if args.qfile == None:
+        raise ValueError('Pass a name for a file containing q values (in inverse angstroms) using -q')
+    
+    qs = np.loadtxt(args.qfile, ndmin=1)
+   
+    if args.output == None:
+        outfile  = map( lambda x:str(x), [args.num_shot,'sh', args.num_mol,'m', args.density,'d', args.energy,'w', args.num_phi,'ph'] + list(qs) + ['q'] + [args.input]  )
+        outfile  = '-'.join( outfile ) + '.ring'
+    else:
+        outfile  = args.output
+    
+    main( args.num_shot, input_traj, args.num_mol, args.density, args.energy, qs, args.num_phi,  outfile)
