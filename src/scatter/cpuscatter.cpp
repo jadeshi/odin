@@ -95,44 +95,53 @@ void kernel( float const * const __restrict__ q_x,
              const int n_rotations ) {
             
 
+    // private variables
+    float rand1, rand2, rand3;
+    float q0, q1, q2, q3;
+    float qx, qy, qz;
+    float Qsumx, Qsumy;
+    float mq, qo, fi;
+    int tind;
+    float rx, ry, rz;
+    int id;
+    float ax, ay, az;
+    float qr;
+
     // main loop
+    #pragma omp parallel for shared(outQ) private(rand1, rand2, rand3, q0, q1, q2, \
+    q3, qx, qy, qz, Qsumx, Qsumy, mq, qo, fi, tind, rx, ry, rz, id, ax, ay, az, qr)
     for( int im = 0; im < n_rotations; im++ ) {
        
         // determine the rotated locations
-        float rand1 = randN1[im]; 
-        float rand2 = randN2[im]; 
-        float rand3 = randN3[im]; 
+        rand1 = randN1[im]; 
+        rand2 = randN2[im]; 
+        rand3 = randN3[im]; 
 
         // rotation quaternions
-        float q0, q1, q2, q3;
         generate_random_quaternion(rand1, rand2, rand3, q0, q1, q2, q3);
 
         // for each q vector
-        // #pragma omp parallel for shared(outQ, q0, q1, q2, q3)
         for( int iq = 0; iq < nQ; iq++ ) {
-            float qx = q_x[iq];
-            float qy = q_y[iq];
-            float qz = q_z[iq];
+            qx = q_x[iq];
+            qy = q_y[iq];
+            qz = q_z[iq];
 
             // workspace for cm calcs -- static size, but hopefully big enough
             float formfactors[MAX_NUM_TYPES];
 
             // accumulant
-            float Qsumx;
-            float Qsumy;
             Qsumx = 0;
             Qsumy = 0;
      
             // Cromer-Mann computation, precompute for this value of q
-            float mq = qx*qx + qy*qy + qz*qz;
-            float qo = mq / (16*M_PI*M_PI); // qo is (sin(theta)/lambda)^2
-            float fi;
+            mq = qx*qx + qy*qy + qz*qz;
+            qo = mq / (16*M_PI*M_PI); // qo is (sin(theta)/lambda)^2
             
             // for each atom type, compute the atomic form factor f_i(q)
             for (int type = 0; type < numAtomTypes; type++) {
             
                 // scan through cromermann in blocks of 9 parameters
-                int tind = type * 9;
+                tind = type * 9;
                 fi =  cromermann[tind]   * exp(-cromermann[tind+4]*qo);
                 fi += cromermann[tind+1] * exp(-cromermann[tind+5]*qo);
                 fi += cromermann[tind+2] * exp(-cromermann[tind+6]*qo);
@@ -143,31 +152,29 @@ void kernel( float const * const __restrict__ q_x,
             }
 
             // for each atom in molecule
+            // #pragma omp parallel for private(rx, ry, rz, ax, ay, az, id, qr, fi) shared(formfactors, q0, q1, q2, q3, qx, qy, qz)
             for( int a = 0; a < numAtoms; a++ ) {
 
                 // get the current positions
-                float rx = r_x[a];
-                float ry = r_y[a];
-                float rz = r_z[a];
-                int   id = r_id[a];
-                float ax, ay, az;
+                rx = r_x[a];
+                ry = r_y[a];
+                rz = r_z[a];
+                id = r_id[a];
 
                 rotate(rx, ry, rz, q0, q1, q2, q3, ax, ay, az);
-                float qr = ax*qx + ay*qy + az*qz;
+                qr = ax*qx + ay*qy + az*qz;
 
                 fi = formfactors[id];
+                
                 Qsumx += fi*sinf(qr);
                 Qsumy += fi*cosf(qr);
+                
             } // finished one molecule.
                         
             // add the output to the total intensity array
-            // #pragma omp critical
+            #pragma omp critical
             outQ[iq] += (Qsumx*Qsumx + Qsumy*Qsumy); // / n_rotations;
             
-            // discrete photon statistics will go here, if implemented 
-            // we'll need a different array to accumulate the results of each
-            // molecule, then add the discrete statistical draw to the final
-            // output       -TJL
         }
     }
 }
