@@ -14,7 +14,7 @@ from odin.utils import odinparser
 from odin.plot import InteractiveImshow
 
 
-def main(input_file, max_intensity=0, npoints=1000):
+def main(input_file, output_file,max_intensity=0, npoints=1000):
     
     shotset = xray.Shotset.load(input_file)
     I = shotset.intensity_profile()
@@ -64,6 +64,10 @@ def main(input_file, max_intensity=0, npoints=1000):
         ax[0].set_ylim([ lims[0], colmax ])
         plt.draw()
         
+    plt.savefig(output_file, bbox_inches='tight')
+    print "Saved: %s" % output_file
+
+    """
     def on_keypress(event):
         if event.key == 'r':
             output = raw_input('Enter filename to save as: ')
@@ -74,7 +78,7 @@ def main(input_file, max_intensity=0, npoints=1000):
     fig.canvas.mpl_connect('key_press_event', on_keypress)
     
     plt.show()
-    
+    """
     return
     
     
@@ -82,12 +86,14 @@ if __name__ == '__main__':
     
     parser = odinparser('Plot intensity profile of a shotset.')
     
-    parser.add_argument('input', type=str, help='An hdf shotset file.')
+    parser.add_argument('-i', '--input', type=str, help='An hdf shotset file.')
     parser.add_argument('-m', '--max', type=float, default=0,
                         help='Maximum intensity to plot (simulated beamstop).'
                              ' Default: Value at 0.4 1/A')
 
+    parser.add_argument('-o', '--output', default='intensity_plot.pdf',
+                        help='Image file to write. Append .pdf, .png, .jpg, etc. Default: correlation_plot.pdf')
     args = parser.parse_args()
     
-    main(args.input, max_intensity=args.max)
+    main(args.input, args.output, max_intensity=args.max)
 

@@ -66,8 +66,8 @@ def main(input_file, output_file, max_intensity=0.0, n_maxima_cutoff=5):
     for i in range(n_maxima):
         ax = plt.subplot2grid((n_maxima,5), (i,2), colspan=3)
         q = I[maxima[i],0]
-        ring = shotset.correlate_ring(q, q)
-        ax.plot(ring[:,0] * (360.0 / (2.*np.pi)),  ring[:,1], lw=2) # in deg
+        ring = shotset.to_rings( [q],360.0 )
+        ax.plot(ring.phi_values,  ring.correlate_intra( q,q,mean_only=True) , lw=2) # in deg
         ax.set_ylabel(r'$C(q, \Delta)$')
         ax.set_xlim([0,360])
         ax.yaxis.set_major_locator(MultipleLocator(0.5))
