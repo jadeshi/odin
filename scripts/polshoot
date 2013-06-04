@@ -40,7 +40,7 @@ if __name__ == '__main__':
                         help='Number of shots (experiments) to perform.')
     parser.add_argument('-m', '--nummolec', type=int, default=1200,
                         help='Number of molecules in each shot. Default: 1200')
-    parser.add_argument('-g', '--numphoton', type=int, default=0,
+    parser.add_argument('-g', '--numphoton', type=float, default=0,
                         help=''''Number of photons scattered in each shot. Pass 0 
                         for the infinite classical limit. Default: inf photons''')
     parser.add_argument('-p', '--parallel', type=int, default=1,
