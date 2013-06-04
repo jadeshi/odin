@@ -33,7 +33,13 @@ if __name__ == '__main__':
                         right now), defining the molecular geometrie(s) to shoot.''')
     parser.add_argument('-q', '--qvals', type=float, nargs='+',
                         help='''The q-values to simulate at, in inv ang. Example:
-                        "-q 2.67 3.08" to simulate at q=2.67, 3.08 inv ang.''')
+                        "-q 2.67 3.08" to simulate at q=2.67, 3.08 inv ang. See
+                        also the -f/--qfile option.''')
+    parser.add_argument('-f', '--qfile', type=str,
+                        help='''Instead of passing a million q-values on the
+                        command line using -q/--qvals, you can pass a file here
+                        that contains all the q-values you want to use in a
+                        flat text file.''')
     parser.add_argument('-x', '--numphi', type=int, default=1,
                         help='Number of pixels around each ring.')
     parser.add_argument('-n', '--numshots', type=int, default=1,
@@ -79,8 +85,18 @@ if __name__ == '__main__':
         total_photons = args.numphoton
         
     # convert q-values to an array
-    q_values = np.array( args.qvals )
-    print "Simulating at q=%s inv. ang." % str(q_values) 
+    if not (args.qvals or args.qfile):
+        parser.error('Missing argument -- require one of: QVALS or QFILE.')
+    elif (args.qvals and args.qfile):
+        parser.error('Overspecification -- please pass onyly one of: QVALS, QFILE.')        
+    elif args.qvals:
+        q_values = np.array( args.qvals )
+    elif args.qfile:
+        q_values = np.genfromtxt( args.qfile ).flatten()
+    else:
+        raise RuntimeError('Fundamental code error...')
+    print "Simulating at q=%s inv. ang." % str(q_values)
+
 
     pool = mp.Pool(processes=p)
     main_args = zip([traj]*p, 
