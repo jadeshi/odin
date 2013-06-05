@@ -60,7 +60,7 @@ class TestHough(object):
         """ test the Hough transform on some real data """
         # final result confirmed visually
         # todo : test against derek
-        cbf = parse.CBF("reference/test1.cbf")
+        cbf = parse.CBF("reference/test_cbf.cbf")
         image = cbf.intensities.reshape( cbf.intensities_shape )
         CM = om.CircularHough(radii=np.arange(70,95,3))
         center = CM(self.image, mode='concentric')

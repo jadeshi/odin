@@ -69,7 +69,7 @@ class TestShoot(object):
 def test_plotiq():
     if not MPL: raise SkipTest
     if TRAVIS: raise SkipTest
-    cmd = 'plotiq -i %s -m 1.0 > /dev/null 2>&1' % ref_file('refshot.shot')
+    cmd = 'plotiq -i %s -m 1.0 > /dev/null 2>&1' % ref_file('ref_shot.shot')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('intensity_plot.pdf'):
         raise RuntimeError('no output produced')
@@ -80,7 +80,7 @@ def test_plotiq():
 def test_plotcorr():
     if not MPL: raise SkipTest
     if TRAVIS: raise SkipTest
-    cmd = 'plotcorr -i %s > /dev/null 2>&1' % ref_file('refshot.shot')
+    cmd = 'plotcorr -i %s > /dev/null 2>&1' % ref_file('ref_shot.shot')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('correlation_plot.pdf'):
         raise RuntimeError('no output produced')
@@ -113,7 +113,7 @@ def test_solvate():
         
 def test_cbf2shot():
     if TRAVIS: raise SkipTest
-    cmd = 'cbf2shot -i %s -o test.shot > /dev/null 2>&1' % ref_file('test1.cbf')
+    cmd = 'cbf2shot -i %s -o test.shot > /dev/null 2>&1' % ref_file('test_cbf.cbf')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('test.shot'):
         raise RuntimeError('no output produced')
