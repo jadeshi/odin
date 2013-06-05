@@ -337,7 +337,7 @@ def multiply_conformations(traj, num_replicas, density, traj_weights=None):
     # find the maximal radius of each snapshot in traj
     max_radius = np.zeros(traj.n_frames)
     for i in xrange(traj.n_frames):
-        max_radius[i] = np.max( np.sqrt( np.sum(np.power(traj.xyz[i,:,:], 2), axis=1) ) )
+        max_radius[i] = np.max( np.sqrt( np.sum(np.power(traj.xyz[i,:,:] * 10. , 2), axis=1) ) )
         
     if boxsize < np.max(max_radius)*2:
         raise ValueError('You solution is too concentrated for its constituent'
