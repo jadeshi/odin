@@ -52,7 +52,7 @@ class TestShoot(object):
         if not os.path.exists('testshot.shot'):
             raise RuntimeError('no output produced')
         else:
-            s = xray.Shot.load('testshot.shot')
+            s = xray.Shotset.load('testshot.shot')
             os.remove('testshot.shot')
             
     def test_cpu(self):
@@ -62,14 +62,14 @@ class TestShoot(object):
         if not os.path.exists('testshot2.shot'):
             raise RuntimeError('no output produced')
         else:
-            s = xray.Shot.load('testshot2.shot')
+            s = xray.Shotset.load('testshot2.shot')
             os.remove('testshot2.shot')
         
         
 def test_plotiq():
     if not MPL: raise SkipTest
     if TRAVIS: raise SkipTest
-    cmd = 'plotiq -i %s -m 1.0 > /dev/null 2>&1' % ref_file('ref_shot.shot')
+    cmd = 'plotiq -i %s -m 1.0 > /dev/null 2>&1' % ref_file('reference_shot.shot')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('intensity_plot.pdf'):
         raise RuntimeError('no output produced')
@@ -80,7 +80,7 @@ def test_plotiq():
 def test_plotcorr():
     if not MPL: raise SkipTest
     if TRAVIS: raise SkipTest
-    cmd = 'plotcorr -i %s > /dev/null 2>&1' % ref_file('ref_shot.shot')
+    cmd = 'plotcorr -i %s > /dev/null 2>&1' % ref_file('reference_shot.shot')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('correlation_plot.pdf'):
         raise RuntimeError('no output produced')
@@ -90,7 +90,7 @@ def test_plotcorr():
         
 def test_replicate():
     if TRAVIS: raise SkipTest
-    cmd = 'replicate -i %s -n 10 -d 0.1 > /dev/null 2>&1' % ref_file('goldBenchMark.coor')
+    cmd = 'replicate -i %s -n 3 -d 10000 > /dev/null 2>&1' % ref_file('gold1k.coor')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('replicated.pdb'):
         raise RuntimeError('no output produced')

@@ -14,7 +14,7 @@ from mdtraj.topology import Topology
 from mdtraj.pdb.element import Element
 
 from odin.refdata import periodic_table
-from odin.math2 import RandRot
+from odin.math2 import rand_rot
 
 import logging
 logger = logging.getLogger(__name__)
@@ -244,7 +244,7 @@ def rand_rotate_molecule2(xyzlist, rfloat=None):
         A rotated version of the input `xyzlist`.
     """
     
-    rotated_xyzlist = RandRot(rfloat) * xyzlist.T
+    rotated_xyzlist = rand_rot(rfloat) * xyzlist.T
     
     rotated_xyzlist = np.array( rotated_xyzlist.T )
     
