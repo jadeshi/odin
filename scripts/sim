@@ -39,6 +39,7 @@ if __name__ == '__main__':
     parser.add_argument('-q', '--qfile', type=str, 
                         help='The name of a file containing the q_values (1 per line, in inverse angstroms ).')
     
+
     parser.add_argument('-o', '--output', default=None,
                         help='ring file to write output to.')
 
