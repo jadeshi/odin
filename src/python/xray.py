@@ -2162,6 +2162,7 @@ class Rings(object):
 #           make the sample system
             traj_n = multiply_conformations( traj, num_molecules, dens )
             rxyz   = traj_n.xyz.reshape( (-1,3) ) * 10. # traj are in nm, scattering sims are in ang
+            print rxyz
 
 #           extract the atomic numbers
             atom_Z = np.array([ a.element.atomic_number for a in traj_n.topology.atoms() ])
