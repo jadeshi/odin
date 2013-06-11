@@ -89,6 +89,16 @@ class TestBasisGrid(object):
         ref[:,:,1] = mg[1]
         ref[:,:,2] = 1.0
         assert_array_almost_equal(self.bg.grid_as_explicit(0), ref)
+        
+    def test_array_typechecking(self):
+        bad_p = np.array([0.0, 0.0])
+        grid_list = [(bad_p, self.s, self.f, self.shape)]
+        try:
+            bg = xray.BasisGrid(grid_list)
+        except:
+            pass
+        else:
+            raise Exception('should have failed : bad typecheck')
 
 
 class TestDetector(object):

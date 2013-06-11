@@ -25,7 +25,9 @@ from odin.interp import Bcinterp
 from odin.utils import unique_rows, maxima, random_pairs
 from odin.corr import correlate as gap_correlate
 
-from mdtraj import trajectory, io
+from mdtraj import trajectory
+from mdtraj import io
+from mdtraj.utils.arrays import ensure_type
 
 import matplotlib.pyplot as plt
 
@@ -186,12 +188,10 @@ class BasisGrid(object):
         """
         Check to make sure that all the inputs look good.
         """
-
-        if not (p.shape == (3,)) and (s.shape == (3,)) and (f.shape == (3,)):
-            raise ValueError('`p`, `s`, `f` must be 3-vectors')
-
-        if not (len(shape) == 2):
-            raise ValueError('`shape` must be len 2')
+            
+        ensure_type(p, np.float, 1, 'p', length=3)
+        ensure_type(s, np.float, 1, 's', length=3)
+        ensure_type(f, np.float, 1, 'f', length=3)
 
         return
 
