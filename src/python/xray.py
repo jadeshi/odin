@@ -2334,8 +2334,7 @@ class Rings(object):
             
         Returns
         -------
-        combined : xray.Rings
-            A rings object with the two datasets combined.
+        None : void
         """
         
         if not np.all(other_rings.q_values == self.q_values):
@@ -2351,6 +2350,67 @@ class Rings(object):
         #return combined
 
         return
+
+
+    def smooth_intensities(self , q , beta=10.0, window_size=11, copy = True ):
+        """
+        Apply an intensity smoothing function to a Rings object.
+        
+        Parameters
+        ----------
+        q : float or array like
+            q position where the smoothing should be applied. If array like, then
+            smoothing will be applied to all listed q values.  
+            
+        Optional Parameters
+        -------------------
+        beta : float
+            Parameter controlling the strength of the smoothing -- bigger beta 
+            results in a smoother function.
+        
+        window_size : int
+            The size of the Kaiser window to apply, i.e. the number of neighboring
+            points used in the smoothing.
+        
+        copy: bool
+            Whether or not to modify current ring or produce a new copied version.
+
+        Returns
+        -------
+        ring or new_ring : Rings object
+            An odin Rings object
+        """
+
+        if type ( q ) == float:
+            qs = [q]
+        
+        if copy == True:
+
+            rp = np.copy ( self.polar_intensities )
+            n_shot = rp.shape[0]
+            
+            for q in qs :
+                i_q = self.q_index( q )
+                for i_shot in xrange( n_shot ) :
+                    rp[ i_shot, i_q ] = smooth( rp[ i_shot, i_q ], beta, window_size )
+
+            new_ring = Rings ( self.q_values, rp, self.k, self.polar_mask )
+
+            return new_ring
+        
+        if copy == False:
+
+            rp = self.polar_intensities 
+            n_shot = rp.shape[0]
+
+            for q in qs:
+                i_q = self.q_index( q )
+                for i_shot in xrange( n_shot ) :
+                    rp[ i_shot, i_q ] = smooth( rp[ i_shot, i_q ], beta, window_size )
+
+            ring = R ( self.q_values, rp, self.k, self.polar_mask )
+
+            return ring
 
 
 def _q_grid_as_xyz(q_values, num_phi, k):
