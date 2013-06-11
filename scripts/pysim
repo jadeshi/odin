@@ -6,11 +6,13 @@ This method does not use cython-made c wrappers, instead it relies on numpy and 
 This method does not compute exact atomic form factors but instead approximates each atoms form factor as that of nitrogen.
 """
 
+import os
+import numpy as np
+
 from odin.scatter import atomic_formfactor as AF
 from odin.utils import odinparser
 from odin.xray import _q_grid_as_xyz as QXYZ
 from odin.xray import Beam,Rings
-import numpy as np
 from odin.structure import rand_rotate_molecule2, load_coor, remove_COM
 
 
@@ -176,7 +178,8 @@ def main(num_shot, traj, num_mol, dens, energy, qs, num_phi, vac, outfile, dilut
                 scatter += np.abs( amplitudes( qvec, xyz_next, FF, num_q, num_phi) ) **2
             intens[i_shot] =  scatter 
         r = Rings (qs, intens, Beam(-1,energy=energy).k )
-        r.save( 'dilu-'+outfile)
+        outfile = os.path.join( os.path.dirname(outfile) , 'dilu-' + os.path.basename(outfile ) )
+        r.save( outfile)
 
     else:
         for i_shot in xrange( num_shot ) :
@@ -190,7 +193,8 @@ def main(num_shot, traj, num_mol, dens, energy, qs, num_phi, vac, outfile, dilut
                 amps += amplitudes( qvec, xyz_next, FF, num_q, num_phi)
             intens[i_shot] =  np.abs( amps ) **2 
         r = Rings (qs, intens, Beam(-1,energy=energy).k )
-        r.save( 'conc-'+outfile)
+        outfile = os.path.join( os.path.dirname(outfile) , 'conc-' + os.path.basename(outfile ) )
+        r.save( outfile)
 
 def amplitudes( qvec,  xyz , FF,num_q,num_phi):
     """

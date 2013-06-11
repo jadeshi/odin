@@ -88,17 +88,6 @@ def test_plotcorr():
         os.remove('correlation_plot.pdf')
         
         
-def test_replicate():
-    if TRAVIS: raise SkipTest
-    cmd = 'replicate -i %s -n 3 -d 10000 > /dev/null 2>&1' % ref_file('gold1k.coor')
-    subprocess.check_call(cmd, shell=True)
-    if not os.path.exists('replicated.pdb'):
-        raise RuntimeError('no output produced')
-    else:
-        o = trajectory.load('replicated.pdb')
-        os.remove('replicated.pdb')
-        
-        
 def test_solvate():
     if not OPENMM: raise SkipTest
     if TRAVIS: raise SkipTest
