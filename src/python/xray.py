@@ -2408,7 +2408,7 @@ class Rings(object):
                 for i_shot in xrange( n_shot ) :
                     rp[ i_shot, i_q ] = smooth( rp[ i_shot, i_q ], beta, window_size )
 
-            ring = R ( self.q_values, rp, self.k, self.polar_mask )
+            ring = Rings ( self.q_values, rp, self.k, self.polar_mask )
 
             return ring
 
