@@ -7,13 +7,13 @@ import os, sys
 import warnings
 from nose import SkipTest
 
-from odin import xray, utils, parse, structure, math2, utils, cpuscatter
+from odin import xray, utils, parse, structure, math2, utils, _cpuscatter
 from odin.testing import skip, ref_file, expected_failure, brute_force_masked_correlation
 from odin.refdata import cromer_mann_params
 from mdtraj import trajectory, io
 
 try:
-    from odin import gpuscatter
+    from odin import _gpuscatter
     GPU = True
 except ImportError as e:
     GPU = False
@@ -404,14 +404,14 @@ class TestShotset(object):
         
         # --- first, scatter onto a perfect ring
         q_grid = xray._q_grid_as_xyz(q_values, num_phi, multi_d.k)
-        ring_i = cpuscatter.simulate(num_molecules, q_grid, xyzlist, 
-                                     atomic_numbers, rfloats=rfloats)
+        ring_i = _cpuscatter.simulate(num_molecules, q_grid, xyzlist, 
+                                      atomic_numbers, rfloats=rfloats)
         perf = xray.Rings(q_values, ring_i[None,None,:], multi_d.k)
                                     
         # --- next, to the full detector
         q_grid2 = multi_d.reciprocal
-        real_i = cpuscatter.simulate(num_molecules, q_grid2, xyzlist, 
-                                     atomic_numbers, rfloats=rfloats)
+        real_i = _cpuscatter.simulate(num_molecules, q_grid2, xyzlist, 
+                                      atomic_numbers, rfloats=rfloats)
 
         # interpolate
         ss = xray.Shotset(real_i, multi_d)
