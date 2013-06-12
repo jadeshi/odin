@@ -17,7 +17,7 @@ from odin.math2 import arctan3
 from odin.exptdata import ExptData
 
 try:
-    from odin import gpuscatter
+    from odin import _gpuscatter
     GPU = True
 except ImportError as e:
     GPU = False
@@ -157,7 +157,7 @@ def simulate_shot(traj, num_molecules, detector, traj_weights=None,
                 if compute_device == 'cpu':
                     func = _cpuscatter.simulate
                 elif compute_device == 'gpu':
-                    func = gpuscatter.simulate
+                    func = _gpuscatter.simulate
                 else:
                     raise ValueError('`compute_device` should be one of {"cpu",\
                      "gpu"}, was: %s' % compute_device)
