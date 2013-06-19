@@ -27,7 +27,15 @@ from odin.corr import correlate as gap_correlate
 from odin.structure import multiply_conformations
 from odin import concscatter
 
-from mdtraj import trajectory, io
+from odin.math2 import arctan3, smooth
+from odin import scatter
+from odin.interp import Bcinterp
+from odin.utils import unique_rows, maxima, random_pairs
+from odin.corr import correlate as gap_correlate
+
+from mdtraj import trajectory
+from mdtraj import io
+from mdtraj.utils.arrays import ensure_type
 
 import matplotlib.pyplot as plt
 
@@ -188,12 +196,10 @@ class BasisGrid(object):
         """
         Check to make sure that all the inputs look good.
         """
-
-        if not (p.shape == (3,)) and (s.shape == (3,)) and (f.shape == (3,)):
-            raise ValueError('`p`, `s`, `f` must be 3-vectors')
-
-        if not (len(shape) == 2):
-            raise ValueError('`shape` must be len 2')
+            
+        ensure_type(p, np.float, 1, 'p', length=3)
+        ensure_type(s, np.float, 1, 's', length=3)
+        ensure_type(f, np.float, 1, 'f', length=3)
 
         return
 
@@ -1801,6 +1807,344 @@ class Rings(object):
         intra : ndarray, float
             Either the average correlation, or every correlation as a 2d array
         """
+        logger.debug("Correlating rings at %f / %f" % (q1, q2))
+
+        q_ind1 = self.q_index(q1)
+        q_ind2 = self.q_index(q2)
+
+        if num_shots == 0: # then do correlation for all shots
+            num_shots = self.num_shots
+
+        rings1 = self.polar_intensities[:num_shots,q_ind1,:] # shots at ring1
+        rings2 = self.polar_intensities[:num_shots,q_ind2,:] # shots at ring2
+
+        # Check if mask exists
+        if self.polar_mask != None:
+            mask1 = self.polar_mask[q_ind1,:]
+            mask2 = self.polar_mask[q_ind2,:]
+        else:
+            mask1 = None
+            mask2 = None     
+
+        return self._correlate_rows(rings1, rings2, mask1, mask2, mean_only)
+    
+
+    def correlate_inter(self, q1, q2, num_pairs=0, mean_only=False):
+        """
+        Does intER-shot correlations for many shots.
+
+        Parameters
+        ----------
+        q1 : float
+            The |q| value of the first ring
+        q2 : float
+            The |q| value of the second ring
+
+        Optional Parameters
+        -------------------
+        num_pairs : int
+            number of pairs of shots to compute correlators for
+        mean_only : bool
+            whether or not to return every correlation, or the average
+
+        to_load : ndarray/list, ints
+            The indices of the shots in `filename` to load. Can be used to sub-
+            sample the shotset.
+
+        Returns
+        -------
+        shotset : odin.xray.Shotset
+            A shotset object
+        """
+
+
+        # load from a shot file
+        if filename.endswith('.shot'):
+            hdf = io.loadh(filename)
+
+            num_shots = int(hdf['num_shots'])
+
+            # figure out which shots to load
+            if to_load == None:
+                to_load = range(num_shots)
+            else:
+                try:
+                    to_load = np.array(to_load)
+                except:
+                    raise TypeError('`to_load` must be a ndarry/list of ints')
+
+            list_of_intensities = []
+            d = Detector._from_serial(hdf['detector'])
+            mask = hdf['mask']
+
+            # check for our flag that there is no mask
+            if np.all(mask == np.array([0])):
+                mask = None
+
+            for i in to_load:
+                i = int(i)
+                list_of_intensities.append( hdf[('shot%d' % i)] )
+
+            hdf.close()
+
+
+        elif filename.endswith('.cxi'):
+            raise NotImplementedError() # todo
+
+        else:
+            raise ValueError('Must load a shotset file [.shot, .cxi]')
+
+
+        return cls(list_of_intensities, d, mask)
+
+
+class Rings(object):
+    """
+    Class to keep track of intensity data in a polar space.
+    """
+
+    def __init__(self, q_values, polar_intensities, k, polar_mask=None):
+        """
+        Interpolate our cartesian-based measurements into a polar coordiante
+        system.
+
+        Parameters
+        ----------
+        q_values : ndarray OR list OF floats
+            The values of |q| in `polar_intensities`, in inverse Angstroms.
+
+        polar_intensities : ndarray, float
+            Intensities in polar space. Should be shape:
+
+                N x len(`q_values`) x num_phi
+
+            with N the number of shots (any value) and `num_phi` the number of
+            points (equally spaced) around the azimuth.
+
+        k : float
+            The wavenumber of the energy used to acquire the data.
+
+        polar_mask : ndarray, bool
+            A mask of ones and zeros. Ones are kept, zeros masked. Should be the
+            same shape as `polar_intensities`, but LESS THE FRIST DIMENSION.
+            That is, the polar mask is the same for all shots. Can also be
+            `None`, meaning no masked pixels
+        """
+
+        if not polar_intensities.shape[1] == len(q_values):
+            raise ValueError('`polar_intensities` must have same len as '
+                             '`q_values` in its second dimension.')
+
+        if polar_mask == None:
+            self.polar_mask = None
+        elif type(polar_mask) == np.ndarray:
+            if not polar_mask.shape == polar_intensities.shape[1:]:
+                raise ValueError('`polar_mask` must have same shape as '
+                                 '`polar_intensities[0,:,:]`,')
+            if not polar_mask.dtype == np.bool:
+                self.polar_mask = polar_mask.astype(np.bool)
+            else:
+                self.polar_mask = polar_mask
+        else:
+            raise TypeError('`polar_mask` must be np.ndarray or None')
+
+        self._q_values         = np.array(q_values)           # q values of the ring data
+        self.polar_intensities = np.copy(polar_intensities)   # copy data so don't over-write
+        self.k                 = k                            # wave number
+
+        return
+
+
+    @property
+    def num_shots(self):
+        return self.polar_intensities.shape[0]
+
+
+    @property
+    def phi_values(self):
+        return np.arange(0, 2.0*np.pi, 2.0*np.pi/float(self.num_phi))
+
+
+    @property
+    def q_values(self):
+        return self._q_values
+
+
+    @property
+    def num_phi(self):
+        return self.polar_intensities.shape[2]
+
+
+    @property
+    def num_q(self):
+        return len(self._q_values)
+
+
+    @property
+    def num_datapoints(self):
+        return self.num_phi * self.num_q
+    
+        
+    def _cospsi(self, q1, q2):
+        """
+        For each value if phi, compute the cosine of the angle between the
+        reciprocal scattering vectors q1/q2 at angular separation phi.
+        
+        cos(psi) = f[phi, q1, q2]
+        
+        Parameters
+        ----------
+        q1/q2 : float
+            The |q| values, in inv. ang.
+            
+        Returns
+        -------
+        cospsi : ndarray, float
+            The cosine of psi, the angle between the scattering vectors.
+        """
+        
+        # this function was formerly: get_cos_psi_vals
+        
+        t1     = np.pi/2. + np.arcsin( q1 / (2.*self.k) ) # theta 1 in spherical coor
+        t2     = np.pi/2. + np.arcsin( q2 / (2.*self.k) ) # theta 2 in spherical coor
+        cospsi = np.cos(t1)*np.cos(t2) + np.sin(t1)*np.sin(t2) *\
+                 np.cos( self.phi_values )
+              
+        return cospsi
+    
+
+    def q_index(self, q, tolerance=1e-4):
+        """
+        Convert value of |q| (in inverse Angstroms) into the index used to
+        slice `polar_intensities`.
+
+        Parameters
+        ----------
+        q : float
+            The value of |q| in inv Angstroms
+
+        tolerance : float
+            The tolerance in |q|. Will return values of q that are within this
+            tolerance.
+
+        Returns
+        -------
+        q_ind : int
+            The index to slice `polar_intensities` at to get |q|.
+        """
+	
+        # check if there are rings at q
+        q_ind = np.where( np.abs(self.q_values - q) < tolerance )[0]
+        
+        if len(q_ind) == 0:
+            raise ValueError("No ring data at q="+str(q) +" inv ang. " \
+                             "There are only data for q="+", ".join(np.char.mod("%.2f",self.q_values) )  )
+        elif len(q_ind) > 1:
+            raise ValueError("Multiple q-values found! Try decreasing the value"
+                             "of the `tolerance` parameter.")
+        
+        return int(q_ind)
+
+
+    def normalize(self):
+        """
+        Normalizes the intensitues of each ring-shot by the average value around the ring.
+        Parameters
+        ----------
+        None : void
+        """
+        
+        I      = self.polar_intensities
+        mask   = self.polar_mask
+         
+#       give each shot unit mean 
+        I_mean = np.sum( I * mask, axis=2 ) / np.sum( mask,axis=1)
+        I     /= I_mean[:,:,None]
+        
+#       divide each polar pixel by its mean across the shot set, normalzes out some detector artifacts
+        I_mean = np.sum( I*mask, axis=0 ) / self.num_shots
+        I     /= I_mean
+        
+#       This doesn;t matter since only masked pixels become nans in this normalization
+        I      = np.nan_to_num( I )
+        
+#       consider re-scaling the intensity in |q|
+        
+        return
+
+
+    def dePolarize(self, outOfPlane=0.99):
+        """
+        Applies a polarization correction to the rings.
+        Parameters
+        ----------
+        outOfPlane : float
+            The fraction of the beam polarization out of the synchrotron plane (between 0 and 1)
+        """
+        qs   = self.q_values
+        wave = 2. * np.pi / self.k
+        I    = self.polar_intensities
+        phis = self.phi_values
+        
+        for i in xrange( len ( qs ) ):
+            q         = qs[i]
+            theta     = np.arcsin( q*wave / 4./ np.pi)
+            SinTheta  = np.sin( 2 * theta )
+            correctn  = outOfPlane      * ( 1. - SinTheta**2 * np.cos( phis )**2 )
+            correctn += (1.-outOfPlane) * ( 1. - SinTheta**2 * np.sin( phis )**2 )
+            I[:,i,:]  /= correctn
+
+        return 
+    
+
+    def intensity_profile(self):
+        """
+        Averages over the azimuth phi to obtain an intensity profile.
+
+        Returns
+        -------
+        intensity_profile : ndarray, float
+            An n x 2 array, where the first dimension is the magnitude |q| and
+            the second is the average intensity at that point < I(|q|) >_phi.
+        """
+
+        intensity_profile      = np.zeros( (self.num_q, 2), dtype=np.float )
+        intensity_profile[:,0] = self._q_values.copy()
+
+        # average over shots, phi
+        if self.polar_mask != None:
+            i = self.polar_intensities * self.polar_mask.astype(np.float)
+        else:
+            i = self.polar_intensities
+
+        intensity_profile[:,1] = np.mean( np.mean(i, axis=2), axis=0)
+
+        return intensity_profile
+
+
+    def correlate_intra(self, q1, q2, num_shots=0, mean_only=False):
+        """
+        Does intRA-shot correlations for many shots.
+
+        Parameters
+        ----------
+        q1 : float
+            The |q| value of the first ring
+        q2 : float
+            The |q| value of the second ring
+
+        Optional Parameters
+        -------------------
+        num_shots : int
+            number of shots to compute correlators for
+        mean_only : bool
+            whether or not to return every correlation, or the average
+
+        Returns
+        -------
+        intra : ndarray, float
+            Either the average correlation, or every correlation as a 2d array
+        """
 
         logger.debug("Correlating rings at %f / %f" % (q1, q2))
 
@@ -1938,7 +2282,6 @@ class Rings(object):
         
         n_row = x.shape[0]
         n_col = x.shape[1]
-
 
         if x_mask != None: 
             assert len(x_mask) == n_col

@@ -7,15 +7,16 @@ import numpy as np
 from numpy.linalg import norm
 from numpy.testing import assert_almost_equal, assert_allclose
 
-from odin import installed
-if installed.gpuscatter:
+try:
+    from odin import _gpuscatter
     GPU = True
-    from odin import gpuscatter
-else:
+except ImportError:
     GPU = False
 
 from odin.refdata import cromer_mann_params
-from odin import xray, scatter, cpuscatter, structure
+from odin import xray, scatter, _cpuscatter, structure
+
+
 from odin.structure import rand_rotate_molecule
 from odin.testing import skip, ref_file, gputest
 
@@ -260,7 +261,7 @@ class TestScatter(object):
 
         if not GPU: raise SkipTest
             
-        gpu_I = gpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist,
+        gpu_I = _gpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist,
                                     self.atomic_numbers, rfloats=self.rfloats)
 
         print "GPU", gpu_I
@@ -276,7 +277,7 @@ class TestScatter(object):
 
         print "testing c cpu code..."
 
-        cpu_I = cpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
+        cpu_I = _cpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
                                     self.atomic_numbers, rfloats=self.rfloats)
 
         print "CPU", cpu_I
@@ -324,7 +325,7 @@ class TestFinitePhoton(object):
                                        
     def test_cpu(self):
         
-        cpu_I = cpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
+        cpu_I = _cpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
                                     self.atomic_numbers, rfloats=self.rfloats, 
                                     poisson_parameter=1.0)
              
@@ -337,11 +338,11 @@ class TestFinitePhoton(object):
         # just makes sure that CPU and GPU match
         if not GPU: raise SkipTest
         
-        gpu_I = gpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
+        gpu_I = _gpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
                                     self.atomic_numbers, rfloats=self.rfloats, 
                                     poisson_parameter=1.0)
                                     
-        cpu_I = cpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
+        cpu_I = _cpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
                                     self.atomic_numbers, rfloats=self.rfloats, 
                                     poisson_parameter=1.0)
         

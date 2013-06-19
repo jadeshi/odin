@@ -5,6 +5,7 @@ from odin.testing import skip, ref_file
 
 import numpy as np
 from scipy import interpolate
+import scipy.ndimage.interpolation as interpolation
 from numpy.testing import assert_allclose, assert_almost_equal, assert_array_almost_equal
  
 
@@ -89,5 +90,18 @@ class TestBcinterp():
         i = interp.evaluate(xa, ya)
         assert_almost_equal( i, np.array([15015.0, 20203.0]) )
         
-        
+    def test_against_scipy(self):
+        x_size = 1000
+        y_size = 1000
+        n_evals = 10
+
+        ex = np.random.randint(0, x_size-2, n_evals) + 0.5
+        ey = np.random.randint(0, y_size-2, n_evals) + 0.5
+
+        a = np.arange(x_size * y_size).reshape(x_size, y_size).astype(np.float)
+
+        bc = Bcinterp(a.flatten(), 1.0, 1.0, x_size, y_size, 0.0, 0.0) ; out1 = bc.evaluate(ex, ey)
+        out2 = interpolation.map_coordinates(a, [ey, ex], order=3)
+
+        assert np.all( (out1-out2) < 1e-8 )
         

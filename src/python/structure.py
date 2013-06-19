@@ -333,9 +333,9 @@ def multiply_conformations(traj, num_replicas, density,  traj_weights=None):
     num_per_shapshot = np.random.multinomial(num_replicas, traj_weights)
     
     # determine the box size
-    boxvol  = (num_replicas * 1.0e24) / (density * 6.02e17) # in nm^3
-    boxsize = cbrt(boxvol)            # one dim of a cubic box, in nm
-    logger.info('Set boxsize: %f nm' % boxsize)
+    boxvol  = (num_replicas * 1.0e27) / (density * 6.02e17) # in A^3
+    boxsize = cbrt(boxvol)            # one dim of a cubic box, in Angstrom
+    logger.info('Set boxsize: %f A' % boxsize)
 
     # find the maximal radius of each snapshot in traj
     max_radius = np.zeros(traj.n_frames)
@@ -400,86 +400,6 @@ def multiply_conformations(traj, num_replicas, density,  traj_weights=None):
 
     return out_traj
 
-def vacanies( traj, perc_mean, perc_var = None) :
-    """
-    Add atom vacancies to structures, mainly used in 
-    nano particle simulations
-    
-    Parameters
-    ----------
-    traj : mdtraj.trajectory
-        A meta-data minimal mdtraj instance
-    
-    perc_mean : float
-        Percentage of vacant atoms
-
-    perc_var : float
-        The actual percentage of vacant atoms will be based on
-        gaussian random number with 'center = perc_mean' and 
-        'width = per_var'
-
-    Returns
-    -------
-    None : void
-    """
-
-    if perc_var == None:
-
-        perc_var = perc_mean/2.
-
-    num_atoms = traj.xyz[0].shape[0]
-
-    num_vac   = np.random.normal( perc_mean * num_atoms, perc_vac * num_atoms  )
-
-    if num_vac > 0 and num_vac < num_atoms:
-#       determine vacancy locations
-
-        np.random.seed()
-    
-        num_vac        =  int ( num_vac ) 
-    
-        new_atom_inds  =  np.random.permutation( num_atoms ) [ 0 : num_atoms - num_vac]
-
-#       remove the vacant atoms
- 
-        new_xyz        =  traj.xyz[0][ new_atom_inds ]
-    
-        new_atom_Z     =  np.array([ a.element.atomic_number for a \
-                         in traj.topology.atoms() ])[ new_atom_inds ]
-        
-
-#       make the new trajectory
-
-        top            = Topology()
-        
-        chain          = top.addChain()
-        
-        residue        = top.addResidue('XXX', chain)
-
-        for i in range(new_xyz.shape[0]):
-            
-            element_symb = periodic_table[  new_atom_Z[i]  ][ 1 ] # should give symbol
-            
-            element      = Element.getBySymbol(element_symb)
-            
-            name         = '%s' % element_symb
-            
-            top.addAtom(name, element, residue)
-    
-        new_traj = trajectory.Trajectory(xyz=new_xyz, topology=top)
-        
-        return new_traj
-    
-    elif num_vac <= 0 :
-   
-        return traj
-        
-    else :
-    
-        raise ValueError('The number of vacancies is greater than the number of atoms. \
-                        Consider lowering the perc_mean and perc_var.') 
-
-
 def load_coor(filename):
     """
     Load a simple coordinate file, formatted as:
@@ -499,15 +419,10 @@ def load_coor(filename):
     structure : mdtraj.trajectory
         A meta-data minimal mdtraj instance
     """
-    
     data = np.genfromtxt(filename)
-    
     xyz = data[:,:3] / 10.0 # coor files are in angstoms, conv. to nm
-    
     atomic_numbers = data[:,3]
-    
     structure = traj_from_xyza( xyz , atomic_numbers )
-    
     return structure
     
 def traj_from_xyza( xyz, atomic_numbers, units='nm' ):
@@ -549,7 +464,3 @@ def traj_from_xyza( xyz, atomic_numbers, units='nm' ):
 
     return structure
 
-
-
-
- 

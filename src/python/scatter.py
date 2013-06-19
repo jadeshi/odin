@@ -11,17 +11,16 @@ import numpy as np
 from scipy import misc, special
 from threading import Thread
 
-from odin import cpuscatter
+from odin import _cpuscatter
 from odin.refdata import cromer_mann_params
 from odin.math2 import arctan3
 from odin.exptdata import ExptData
 
 try:
-    from odin import gpuscatter
+    from odin import _gpuscatter
     GPU = True
 except ImportError as e:
     GPU = False
-
 
 
 def simulate_shot(traj, num_molecules, detector, traj_weights=None,
@@ -155,11 +154,9 @@ def simulate_shot(traj, num_molecules, detector, traj_weights=None,
             def multi_helper(compute_device, fargs):
                 """ a helper function that performs either CPU or GPU calcs """
                 if compute_device == 'cpu':
-                    from odin import cpuscatter
-                    func = cpuscatter.simulate
+                    func = _cpuscatter.simulate
                 elif compute_device == 'gpu':
-                    from odin import gpuscatter
-                    func = gpuscatter.simulate
+                    func = _gpuscatter.simulate
                 else:
                     raise ValueError('`compute_device` should be one of {"cpu",\
                      "gpu"}, was: %s' % compute_device)

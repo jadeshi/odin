@@ -309,7 +309,7 @@ void Bcinterp::evaluate_array(int dim_xa, float *xa, int dim_ya, float *ya,
         throw std::invalid_argument("xa, ya, za must all be same dimension");
     }
         
-    #pragma omp parallel for shared(za)
+    // #pragma omp parallel for shared(za)
     for( int i = 0; i < dim_za; i++ ) {
         za[i] = evaluate_point(xa[i], ya[i]);
     }
