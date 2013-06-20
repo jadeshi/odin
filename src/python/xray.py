@@ -25,7 +25,6 @@ from odin.interp import Bcinterp
 from odin.utils import unique_rows, maxima, random_pairs
 from odin.corr import correlate as gap_correlate
 from odin.structure import multiply_conformations
-from odin import concscatter
 
 from odin.math2 import arctan3, smooth
 from odin import scatter
@@ -2440,84 +2439,6 @@ class Rings(object):
 
         return Cl
 
-
-    @classmethod
-    def simulate_conc(cls, traj, num_molecules, q_values, num_phi, num_shots,
-                 dens, energy=10):
-        """
-        Simulate many scattering 'shot's, i.e. one exposure of x-rays to a
-        sample, but onto a polar detector. Return that as a Rings object
-        (factory function).
-
-        Assumes we have a Boltzmann distribution of `num_molecules` identical
-        molecules (`trajectory`), exposed to a beam defined by `beam` and
-        projected onto `detector`.
-
-        Each conformation is randomly rotated before the scattering simulation is
-        performed. Atomic form factors from X, and the concentrated-sample.
-
-        Parameters
-        ----------
-        traj : mdtraj.trajectory
-            A trajectory object that contains a set of structures, representing
-            the Boltzmann ensemble of the sample. If len(traj) == 1, then we
-            assume the sample consists of a single homogenous structure,
-            replecated `num_molecules` times.
-
-        num_molecules : int
-            The number of molecules estimated to be in the `beam`'s focus.
-
-        q_values : ndarray/list, float
-            The values of |q| to extract rings at (in Ang^{-1}).
-
-        num_phi : int
-            The number of equally spaced points around the azimuth to
-            interpolate onto (e.g. `num_phi`=360 means 1 deg spacing).
-
-        num_shots : int
-            The number of shots to perform and include in the Shotset.
-
-        dens : float
-            The density of the desired system in micromolar
-
-        Optional Parameters
-        -------------------
-        energy : float
-            The energy, in keV
-
-        Returns
-        -------
-        rings : odin.xray.Rings
-            A Rings instance, containing the simulated shots.
-        """
-
-        beam = Beam(-1, energy=energy)
-        k = beam.k
-        q_values = np.array(q_values)
-
-        qxyz = _q_grid_as_xyz(q_values, num_phi, k)
-
-        # --- simulate the intensities ---
-
-        polar_intensities = np.zeros((num_shots, len(q_values), num_phi))
-
-        for i in range(num_shots):
-#           make the sample system
-            traj_n = multiply_conformations( traj, num_molecules, dens )
-            rxyz   = traj_n.xyz.reshape( (-1,3) ) * 10. # traj are in nm, scattering sims are in ang
-            print rxyz
-
-#           extract the atomic numbers
-            atom_Z = np.array([ a.element.atomic_number for a in traj_n.topology.atoms() ])
-            atom_Z = np.array( tuple( atom_Z ) * num_molecules )
-            
-            I = concscatter.simulate_shot( qxyz , rxyz, atom_Z )
-            
-            polar_intensities[i,:,:] = I.reshape(len(q_values), num_phi)
-
-            logger.info('Finished polar shot %d/%d' % (i+1, num_shots) )
-
-        return cls(q_values, polar_intensities, k, polar_mask=None)
 
     @classmethod
     def simulate(cls, traj, num_molecules, q_values, num_phi, num_shots,

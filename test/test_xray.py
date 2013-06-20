@@ -403,8 +403,8 @@ class TestShotset(object):
         rfloats = np.random.rand(num_molecules, 3)
         
         # --- first, scatter onto a perfect ring
-        q_grid = xray._q_grid_as_xyz(q_values, num_phi, multi_d.k)
-                                     atomic_numbers, rfloats=rfloats)
+        q_grid = xray._q_grid_as_xyz(q_values, num_phi, multi_d.k) 
+        
         ring_i = _cpuscatter.simulate(num_molecules, q_grid, xyzlist, 
                                       atomic_numbers, rfloats=rfloats)
         perf = xray.Rings(q_values, ring_i[None,None,:], multi_d.k)
