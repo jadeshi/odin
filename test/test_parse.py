@@ -15,7 +15,7 @@ from mdtraj import trajectory, io
 class TestCBF(object):
     
     def setup(self):
-        self.cbf = parse.CBF(ref_file('test1.cbf'))
+        self.cbf = parse.CBF(ref_file('test_cbf.cbf'))
         
     def test_intensities_shape(self):
         s = self.cbf.intensities_shape

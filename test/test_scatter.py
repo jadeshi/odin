@@ -15,6 +15,8 @@ except ImportError:
 
 from odin.refdata import cromer_mann_params
 from odin import xray, scatter, _cpuscatter, structure
+
+
 from odin.structure import rand_rotate_molecule
 from odin.testing import skip, ref_file, gputest
 

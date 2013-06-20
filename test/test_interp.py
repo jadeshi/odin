@@ -105,4 +105,3 @@ class TestBcinterp():
 
         assert np.all( (out1-out2) < 1e-8 )
         
-        

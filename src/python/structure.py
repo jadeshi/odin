@@ -14,6 +14,7 @@ from mdtraj.topology import Topology
 from mdtraj.pdb.element import Element
 
 from odin.refdata import periodic_table
+from odin.math2 import rand_rot
 
 import logging
 logger = logging.getLogger(__name__)
@@ -223,6 +224,31 @@ def rand_rotate_molecule(xyzlist, rfloat=None):
         rotated_xyzlist[i,:] = q_prime[1:].copy() # want the last 3 elements...
     
     return rotated_xyzlist
+
+def rand_rotate_molecule2(xyzlist, rfloat=None):
+    """
+    Randomly rotate the molecule defined by xyzlist.
+    
+    Parameters
+    ----------
+    xyzlist : ndarray, float, 3D
+        An n x 3 array representing the x,y,z positions of n atoms.
+        
+    rfloat : ndarray, float, len 3
+        A 3-vector of random numbers in [0,1) that acts as a random seed. If
+        not passed, generates new random numbers.
+        
+    Returns
+    -------
+    rotated_xyzlist : ndarray, float, 3D
+        A rotated version of the input `xyzlist`.
+    """
+    
+    rotated_xyzlist = rand_rot(rfloat) * xyzlist.T
+    
+    rotated_xyzlist = np.array( rotated_xyzlist.T )
+    
+    return rotated_xyzlist
     
     
 def rand_rotate_traj(traj, remove_COM=False):
@@ -252,7 +278,7 @@ def rand_rotate_traj(traj, remove_COM=False):
     return traj
 
 
-def multiply_conformations(traj, num_replicas, density, traj_weights=None):
+def multiply_conformations(traj, num_replicas, density,  traj_weights=None):
     """
     Take a structure and generate a system of many conformations, such that they
     are randomly distributed & rotated in space with a given `density`.
@@ -279,6 +305,9 @@ def multiply_conformations(traj, num_replicas, density, traj_weights=None):
     
     Optional Parameters
     -------------------
+    perc_mean : float
+        Fraction of total atoms that are vacant (missing).
+
     traj_weights : ndarray, float
         The weights at which to include members of trajectory in the final
         system. Default is to assign equal weight to all members of trajectory.
@@ -310,8 +339,8 @@ def multiply_conformations(traj, num_replicas, density, traj_weights=None):
 
     # find the maximal radius of each snapshot in traj
     max_radius = np.zeros(traj.n_frames)
-    for i in range(traj.n_frames):
-        max_radius[i] = np.max( np.sqrt( np.sum(np.power(traj.xyz[i,:,:] * 10, 2), axis=1) ) )
+    for i in xrange(traj.n_frames):
+        max_radius[i] = np.max( np.sqrt( np.sum(np.power(traj.xyz[i,:,:]  , 2), axis=1) ) )
         
     if boxsize < np.max(max_radius)*2:
         raise ValueError('You solution is too concentrated for its constituent'
@@ -320,14 +349,21 @@ def multiply_conformations(traj, num_replicas, density, traj_weights=None):
         
     # place in space
     ind = []
-    for x in range( len(num_per_shapshot) ):
+    
+    for x in xrange( len(num_per_shapshot) ):
         ind.extend( [x] * num_per_shapshot[x] )
+    
     xyz = traj.xyz[ind,:,:]
     
     centers_of_mass = np.zeros((num_replicas, 3)) # to store these and use later
     
-    # we'll leave the first molecule at the origin...
-    for i in range(1, xyz.shape[0]):
+#   randomize the first molecule
+    xyz[0,:,:]         = rand_rotate_molecule2(xyz[0,:,:])
+    centers_of_mass[0] = np.random.uniform(low=0, high=boxsize, size=3)
+    for x in xrange(3):
+        xyz[0,:,x] += centers_of_mass[0,x]
+
+    for i in xrange(1, xyz.shape[0] ):
         molecule_overlapping = True # initial cond.
         
         attempt = 0
@@ -339,7 +375,7 @@ def multiply_conformations(traj, num_replicas, density, traj_weights=None):
             centers_of_mass[i,:] = np.random.uniform(low=0, high=boxsize, size=3)
             
             # check to see if we're overlapping another molecule already placed
-            for j in range(i):
+            for j in xrange(i):
                 molec_dist = np.linalg.norm(centers_of_mass[i,:] - centers_of_mass[j,:])
                 min_allowable_dist = max_radius[ind[i]] + max_radius[ind[j]]
                 
@@ -353,17 +389,16 @@ def multiply_conformations(traj, num_replicas, density, traj_weights=None):
             if attempt > 10000:
                 raise RuntimeError('Number of attempts > 10000, density is too high.')
             
-        xyz[i,:,:] = rand_rotate_molecule(xyz[i,:,:])
-        for x in range(3):
+        xyz[i,:,:] = rand_rotate_molecule2(xyz[i,:,:])
+        for x in xrange(3):
             xyz[i,:,x] += centers_of_mass[i,x]
         
         logger.debug('Placed molecule, took %d attempts' % attempt)
-                    
+    
     # store & return the results
     out_traj = trajectory.Trajectory( xyz, traj.topology )
 
     return out_traj
-    
 
 def load_coor(filename):
     """
@@ -384,26 +419,48 @@ def load_coor(filename):
     structure : mdtraj.trajectory
         A meta-data minimal mdtraj instance
     """
-    
     data = np.genfromtxt(filename)
-    
     xyz = data[:,:3] / 10.0 # coor files are in angstoms, conv. to nm
     atomic_numbers = data[:,3]
+    structure = traj_from_xyza( xyz , atomic_numbers )
+    return structure
     
+def traj_from_xyza( xyz, atomic_numbers, units='nm' ):
+    """
+    Parameters
+    ----------
+    xyz : np.array, float, shape( num_atom, 3)
+        array of x,y,z,a
+
+    atomic_numbers : np.array, int, shape( num_atom, 1 )
+        the atomic numbers of each of the atoms.
+
+    Optional Parameters
+    -------------------
+    units : str
+        if units == 'nm' then nothing happens. if units == 'ang' then
+        we convert them to nm.
+        
+    Returns
+    -------
+    structure : mdtraj.trajectory
+        A meta-data minimal mdtraj instance
+    """
+    
+    if units == 'ang':
+        xyz /= 10.
+
     top = Topology()
     chain = top.addChain()
     residue = top.addResidue('XXX', chain)
     
-    for i in range(data.shape[0]):
+    for i in range(xyz.shape[0]):
         element_symb = periodic_table[atomic_numbers[i]][1] # should give symbol
         element = Element.getBySymbol(element_symb)
         name = '%s' % element_symb
         top.addAtom(name, element, residue)
     
     structure = trajectory.Trajectory(xyz=xyz, topology=top)
-    
+
     return structure
-    
-    
-    
-    
+

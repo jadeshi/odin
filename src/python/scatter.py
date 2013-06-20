@@ -78,10 +78,9 @@ def simulate_shot(traj, num_molecules, detector, traj_weights=None,
         
     See Also
     --------
-    odin.xray.Shot.simulate()
     odin.xray.Shotset.simulate()
         These are factory functions that call this function, and wrap the
-        results into the Shot and Shotset classes, respectively.
+        results into the Shotset class.
     """
     
     

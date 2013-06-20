@@ -403,7 +403,8 @@ class TestShotset(object):
         rfloats = np.random.rand(num_molecules, 3)
         
         # --- first, scatter onto a perfect ring
-        q_grid = xray._q_grid_as_xyz(q_values, num_phi, multi_d.k)
+        q_grid = xray._q_grid_as_xyz(q_values, num_phi, multi_d.k) 
+        
         ring_i = _cpuscatter.simulate(num_molecules, q_grid, xyzlist, 
                                       atomic_numbers, rfloats=rfloats)
         perf = xray.Rings(q_values, ring_i[None,None,:], multi_d.k)
@@ -500,6 +501,8 @@ class TestRings(object):
         q1 = 1.0 # chosen arb.
         q_ind = self.rings.q_index(q1)
         
+        
+        
         x = self.rings.polar_intensities[0,q_ind,:].flatten()
         y = self.rings.polar_intensities[0,q_ind,:].flatten()
         assert len(x) == len(y)
@@ -539,6 +542,12 @@ class TestRings(object):
         
         q1 = 1.0 # chosen arb.
         q_ind = self.rings.q_index(q1)
+        
+        x = self.rings.polar_intensities[0,q_ind,:].flatten()
+        y = self.rings.polar_intensities[1,q_ind,:].flatten()
+        ref = self.rings._correlate_rows(x, y, mean_only=True)
+        
+        
         
         x = self.rings.polar_intensities[0,q_ind,:].flatten().copy()
         no_mask = np.ones(x.shape[0], dtype=np.bool)
@@ -630,6 +639,7 @@ class TestMisc(object):
     # this test is not working quite right, it fails a lot
     # maybe we can make it deterministic in the future
     @skip
+    
     def test_iprofile_consistency(self):
 
         t = structure.load_coor(ref_file('gold1k.coor'))

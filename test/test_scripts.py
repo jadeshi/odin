@@ -52,7 +52,7 @@ class TestShoot(object):
         if not os.path.exists('testshot.shot'):
             raise RuntimeError('no output produced')
         else:
-            s = xray.Shot.load('testshot.shot')
+            s = xray.Shotset.load('testshot.shot')
             os.remove('testshot.shot')
             
     def test_cpu(self):
@@ -62,14 +62,14 @@ class TestShoot(object):
         if not os.path.exists('testshot2.shot'):
             raise RuntimeError('no output produced')
         else:
-            s = xray.Shot.load('testshot2.shot')
+            s = xray.Shotset.load('testshot2.shot')
             os.remove('testshot2.shot')
         
         
 def test_plotiq():
     if not MPL: raise SkipTest
     if TRAVIS: raise SkipTest
-    cmd = 'plotiq -i %s -m 1.0 > /dev/null 2>&1' % ref_file('refshot.shot')
+    cmd = 'plotiq -i %s -m 1.0 > /dev/null 2>&1' % ref_file('reference_shot.shot')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('intensity_plot.pdf'):
         raise RuntimeError('no output produced')
@@ -80,23 +80,12 @@ def test_plotiq():
 def test_plotcorr():
     if not MPL: raise SkipTest
     if TRAVIS: raise SkipTest
-    cmd = 'plotcorr -i %s > /dev/null 2>&1' % ref_file('refshot.shot')
+    cmd = 'plotcorr -i %s > /dev/null 2>&1' % ref_file('reference_shot.shot')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('correlation_plot.pdf'):
         raise RuntimeError('no output produced')
     else:
         os.remove('correlation_plot.pdf')
-        
-        
-def test_replicate():
-    if TRAVIS: raise SkipTest
-    cmd = 'replicate -i %s -n 10 -d 0.1 > /dev/null 2>&1' % ref_file('goldBenchMark.coor')
-    subprocess.check_call(cmd, shell=True)
-    if not os.path.exists('replicated.pdb'):
-        raise RuntimeError('no output produced')
-    else:
-        o = trajectory.load('replicated.pdb')
-        os.remove('replicated.pdb')
         
         
 def test_solvate():
@@ -113,7 +102,7 @@ def test_solvate():
         
 def test_cbf2shot():
     if TRAVIS: raise SkipTest
-    cmd = 'cbf2shot -i %s -o test.shot > /dev/null 2>&1' % ref_file('test1.cbf')
+    cmd = 'cbf2shot -i %s -o test.shot > /dev/null 2>&1' % ref_file('test_cbf.cbf')
     subprocess.check_call(cmd, shell=True)
     if not os.path.exists('test.shot'):
         raise RuntimeError('no output produced')
