@@ -11,25 +11,20 @@ logger = logging.getLogger(__name__)
 #logger.setLevel('DEBUG')
 
 import cPickle
-from bisect import bisect_left
 
 import numpy as np
-from matplotlib import nxutils
 from scipy import interpolate, fftpack
-from scipy.ndimage import filters
+from scipy.ndimage import filters, interpolation
 from scipy.special import legendre
 
 from odin.math2 import arctan3, smooth
 from odin import scatter
-from odin.interp import Bcinterp
 from odin.utils import unique_rows, maxima, random_pairs
 from odin.corr import correlate as gap_correlate
 
 
 from mdtraj import io
 from mdtraj.utils.arrays import ensure_type
-
-import matplotlib.pyplot as plt
 
 
 # ------------------------------------------------------------------------------
@@ -1216,10 +1211,12 @@ class Shotset(object):
 
                 # corner: (0,0); x/y size: 1.0; x is fast, y slow
                 shot_pi = np.zeros(num_q * num_phi)
-                interp = Bcinterp(self.intensities[i,int_start:int_end],
-                                  1.0, 1.0, size[1], size[0], 0.0, 0.0)
-
-                shot_pi[intersect] = interp.evaluate(pix_n[:,1], pix_n[:,0])
+                
+                # employ scipy's bicubic interpolator, "map_coordinates", which
+                # takes a rectangular grid of intensities (sqI) and an array of 
+                # points to interpolate onto (pix_n)
+                sqI = self.intensities[i,int_start:int_end].reshape(size[0], size[1])
+                shot_pi[intersect] = interpolation.map_coordinates(sqI, pix_n.T, order=3)
                 polar_intensities[i,:,:] += shot_pi.reshape(num_q, num_phi)
                 
 
