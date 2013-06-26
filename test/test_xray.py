@@ -475,7 +475,7 @@ class TestRings(object):
     def test_intensity_profile(self):
         q_values = [2.4, 2.67, 3.0] # should be a peak at |q|=2.67
         t = structure.load_coor(ref_file('gold1k.coor'))
-        rings = xray.Rings.simulate(t, 10, q_values, self.num_phi, 1) # 3 molec, 1 shots
+        rings = xray.Rings.simulate(t, 20, q_values, self.num_phi, 1) # 3 molec, 1 shots
         ip = rings.intensity_profile()
         assert ip[1,1] > ip[0,1]
         assert ip[1,1] > ip[2,1]
@@ -507,8 +507,8 @@ class TestRings(object):
         y = self.rings.polar_intensities[0,q_ind,:].flatten()
         assert len(x) == len(y)
 
-        ring = self.rings._correlate_rows(x, y, mean_only=True)
-        ring_nomean = self.rings._correlate_rows(x, y, mean_only=False)
+        ring = self.rings._correlate_rows(x, y, 0,mean_only=True)
+        ring_nomean = self.rings._correlate_rows(x, y,0, mean_only=False)
         
         # quick check that the mean method is working the way we expect
         assert_allclose(ring, ring_nomean[0,:], err_msg='mean and non-mean dont match')
@@ -530,8 +530,8 @@ class TestRings(object):
         x_mask = np.random.binomial(1, 0.9, size=len(x)).astype(np.bool)
         no_mask = np.ones_like(x_mask)
         
-        corr = self.rings._correlate_rows(x, x, x_mask, x_mask, mean_only=True)
-        true_corr = self.rings._correlate_rows(x, x, no_mask, no_mask, mean_only=True)
+        corr = self.rings._correlate_rows(x, x, 0, x_mask, x_mask, mean_only=True)
+        true_corr = self.rings._correlate_rows(x, x,0, mean_only=True)
         ref_corr = brute_force_masked_correlation(x, x_mask)
 
         # big tol, but w/a lot of masking there is a ton of noise
@@ -545,43 +545,43 @@ class TestRings(object):
         
         x = self.rings.polar_intensities[0,q_ind,:].flatten()
         y = self.rings.polar_intensities[1,q_ind,:].flatten()
-        ref = self.rings._correlate_rows(x, y, mean_only=True)
+        ref = self.rings._correlate_rows(x, y, 0, mean_only=True)
         
         
         
         x = self.rings.polar_intensities[0,q_ind,:].flatten().copy()
         no_mask = np.ones(x.shape[0], dtype=np.bool)
         
-        corr_nomask = self.rings._correlate_rows(x, x, None, None, mean_only=True)
-        corr_mask   = self.rings._correlate_rows(x, x, no_mask, no_mask, mean_only=True)
+        corr_nomask = self.rings._correlate_rows(x, x, 0,None, None, mean_only=True)
+        corr_mask   = self.rings._correlate_rows(x, x, 0,None, None, mean_only=True)
 
         # big tol, but w/a lot of masking there is a ton of noise
         assert_allclose(corr_mask, corr_nomask, rtol=1e-3)
         
     def test_correlate_intra(self):
         # smoke tests : these functions are very simple
-        intra = self.rings.correlate_intra(1.0, 1.0)
-        intra = self.rings.correlate_intra(1.0, 1.0, num_shots=1)
+        intra = self.rings.correlate_intra(1.0, 1.0,0)
+        intra = self.rings.correlate_intra(1.0, 1.0, 0,num_shots=1)
 
     def test_correlate_inter(self):
         q = 1.0
         q_ind = self.rings.q_index(q)
         
         # there's only one possible inter pair for these guys (only two shots)
-        inter = self.rings.correlate_inter(q, q, mean_only=True)
+        inter = self.rings.correlate_inter(q, q, 0, mean_only=True)
         
         x = self.rings.polar_intensities[0,q_ind,:].flatten()
         y = self.rings.polar_intensities[1,q_ind,:].flatten()
-        ref = self.rings._correlate_rows(x, y, mean_only=True)
+        ref = self.rings._correlate_rows(x, y, 0, mean_only=True)
         
         assert_allclose(ref, inter)
         
         # also smoke test random pairs
         rings2 = xray.Rings.simulate(self.traj, 1, self.q_values, self.num_phi, 3) # 1 molec, 3 shots
-        inter = rings2.correlate_inter(q, q, mean_only=True, num_pairs=1)
+        inter = rings2.correlate_inter(q, q, 0, mean_only=True, num_pairs=1)
         
     def test_convert_to_kam(self):
-        intra = self.rings.correlate_intra(1.0, 1.0, mean_only=True)
+        intra = self.rings.correlate_intra(1.0, 1.0,0, mean_only=True)
         kam_corr = self.rings._convert_to_kam(1.0, 1.0, intra)
         assert kam_corr.shape[1] == 2
         assert kam_corr[:,0].min() >= -1.0
@@ -608,7 +608,7 @@ class TestRings(object):
         assert len(cl) == order
 
         # make sure it matches up with the raw correlation
-        ring = self.rings.correlate_intra(q1, q1, mean_only=True)
+        ring = self.rings.correlate_intra(q1, q1, 0, mean_only=True)
         kam_ring = self.rings._convert_to_kam( q1, q1, ring )
         
         # reconstruct the correlation function

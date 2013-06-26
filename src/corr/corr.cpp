@@ -12,33 +12,28 @@
 using namespace std;
 
 
-Corr::Corr(int N_, float * ar1, float * ar2, float * ar3, short mean_norm_) {
+Corr::Corr(int N_, float * ar1, float * ar2, float * ar3, short norm_) {
     
   N         =  N_;
   ar1_mean  =  mean_no_zero(ar1);
   ar2_mean  =  mean_no_zero(ar2);
 
-  mean_norm = mean_norm_;
-  //for (int i =0;i < N; i++ )
-  //{
-   // ar1[i] -= ar1_mean;
-    //ar2[i] -= ar2_mean;
-  //}
+  norm = norm_;
   
   ar1_stdev  = stdev_no_zero(ar1, ar1_mean);
   ar2_stdev  = stdev_no_zero(ar2, ar2_mean);
 
-  if (mean_norm==1)
-  {
-    correlate_mean_norm(ar1, ar2, ar3);
-  }
+  if ( norm==0)
+    norm_factor = ar1_mean * ar2_mean;
+  else if ( norm==1)
+    norm_factor = ar1_stdev * ar2_stdev;
   else
-  {
-    correlate_stdev_norm ( ar1,ar2,ar3);
-  }
+    norm_factor = 1;
+  
+  correlate ( ar1,ar2,ar3);
 }
 
-void Corr::correlate_mean_norm(float * ar1, float * ar2, float * arC) 
+void Corr::correlate(float * ar1, float * ar2, float * arC) 
 {
   #pragma omp parallel for shared(arC)
   for ( int phi=0; phi < N; phi++ ) 
@@ -53,34 +48,11 @@ void Corr::correlate_mean_norm(float * ar1, float * ar2, float * arC)
       
       if (ar1[i] > 0 && ar2[j] > 0) 
       {
-        arC[phi] += (ar1[i]-ar1_mean) * (ar2[j]-ar2_mean);
+        arC[phi] += ( ar1[i] - ar1_mean) *( ar2[j]-ar2_mean) ;
         counts += 1;
       }
     }
-    arC[phi] = arC[phi] / (ar1_mean * ar2_mean * counts);
-  }
-}
-
-void Corr::correlate_stdev_norm(float * ar1, float * ar2, float * arC) 
-{
-  #pragma omp parallel for shared(arC)
-  for ( int phi=0; phi<N; phi++ ) 
-  {
-    float counts(0); // keep track of the number of good pairs
-    for ( int i=0; i < N; i++) 
-    {
-      int j = i + phi;
-      
-      if (j >= N) 
-        j -= N;
-      
-      if (ar1[i] > 0 && ar2[j] > 0) 
-      {
-        arC[phi] += (ar1[i]-ar1_mean) * (ar2[j] - ar2_mean);
-        counts += 1;
-      }
-    }
-    arC[phi] = arC[phi] / (ar1_stdev * ar2_stdev * counts);
+    arC[phi] = arC[phi] / (norm_factor *  counts);
   }
 }
 
@@ -105,7 +77,7 @@ float Corr::mean_no_zero(float * ar)
     return 0;
 }
 
-float Corr::stdev_no_zero( float * ar, float ar_mean )
+float Corr::stdev_no_zero( float * ar, float ar_mean)
 {
 // the array ar is already mean subtracted
 
@@ -116,7 +88,7 @@ float Corr::stdev_no_zero( float * ar, float ar_mean )
   {
     if(ar[i] > 0)
     {
-      ar_stdev += ( ar[i]-ar_mean)*(ar[i]-ar_mean);
+      ar_stdev += ( ar[i]- ar_mean )* ( ar[i] - ar_mean ) ;
       counts ++;
     }
     i ++;
@@ -131,4 +103,5 @@ float Corr::stdev_no_zero( float * ar, float ar_mean )
 Corr::~Corr() {
 // destructor
 }
+
 

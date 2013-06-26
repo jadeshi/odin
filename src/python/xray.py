@@ -1773,7 +1773,7 @@ class Rings(object):
         return intensity_profile
 
 
-    def correlate_intra(self, q1, q2, num_shots=0, mean_only=False, mean_norm=True):
+    def correlate_intra(self, q1, q2, norm,  num_shots=0, mean_only=False):
         """
         Does intRA-shot correlations for many shots.
 
@@ -1783,6 +1783,13 @@ class Rings(object):
             The |q| value of the first ring
         q2 : float
             The |q| value of the second ring
+
+         norm : int
+            Type of normalization ( 0 : mean shot by shot, 
+                                    1 : stdev shot by shot, 
+                                    2 : total mean, 
+                                    3 : total stdev , 
+                                    4 : none )
 
         Optional Parameters
         -------------------
@@ -1819,10 +1826,10 @@ class Rings(object):
             mask1 = None
             mask2 = None     
 
-        return self._correlate_rows(rings1, rings2, mask1, mask2, mean_only,mean_norm)
+        return self._correlate_rows(rings1, rings2, norm, mask1, mask2, mean_only )
     
 
-    def correlate_inter(self, q1, q2, num_pairs=0, mean_only=False, mean_norm=True):
+    def correlate_inter(self, q1, q2, norm, num_pairs=0, mean_only=False, mean_norm=True):
         """
         Does intER-shot correlations for many shots.
 
@@ -1833,6 +1840,12 @@ class Rings(object):
         q2 : float
             The |q| value of the second ring
 
+        norm : int
+            Type of normalization ( 0 : mean shot by shot, 
+                                    1 : stdev shot by shot, 
+                                    2 : total mean, 
+                                    3 : total stdev , 
+                                    4 : none )
         Optional Parameters
         -------------------
         num_pairs : int
@@ -1875,24 +1888,51 @@ class Rings(object):
 
         # this will save some memory, which can quickly bloat...
         # todo : run in real life and see what works
+        #        , clean this up...
         if mean_only:
             corr = np.zeros(self.num_phi)
-            for i in xrange( inter_pairs.shape[0] ):
-                x = self.polar_intensities[inter_pairs[i,0],q_ind1,:] # shots at ring1
-                y = self.polar_intensities[inter_pairs[i,1],q_ind2,:] # shots at ring2
-                corr += self._correlate_rows(x, y, mask1, mask2, mean_only=True, mean_norm=mean_norm)
-            corr /= float(inter_pairs.shape[0])
+            
+            if norm in (0,1,4):
+                
+                for i in xrange( inter_pairs.shape[0] ):
+                    x = self.polar_intensities[inter_pairs[i,0],q_ind1,:] # shots at ring1
+                    y = self.polar_intensities[inter_pairs[i,1],q_ind2,:] # shots at ring2
+                    corr += self._correlate_rows(x, y, norm , mask1, mask2, mean_only=True)
+                corr /= float(inter_pairs.shape[0])
+                
+            elif norm == 2:
+                x_bar = np.zeros( self.num_phi )
+                y_bar = np.zeros( self.num_phi)
+                for i in xrange( inter_pairs.shape[0] ):
+                    x = self.polar_intensities[inter_pairs[i,0],q_ind1,:] # shots at ring1
+                    y = self.polar_intensities[inter_pairs[i,1],q_ind2,:] # shots at ring2
+                    x_bar += np.ma.masked_array( x, mask= mask1).mean() # might be able to speed up by avoiding masked arrays, but this prevents introduction of NaNs etc 
+                    y_bar += np.ma.masked_array( y, mask= mask2).mean()
+                    corr += self._correlate_rows(x, y, 4 , mask1, mask2, mean_only=True)
+                corr /= (x_bar*y_bar )
+            
+            elif norm==3: 
+                x_stdev = np.zeros( self.num_phi )
+                y_stdev = np.zeros( self.num_phi)
+                for i in xrange( inter_pairs.shape[0] ):
+                    x = self.polar_intensities[inter_pairs[i,0],q_ind1,:] # shots at ring1
+                    y = self.polar_intensities[inter_pairs[i,1],q_ind2,:] # shots at ring2
+                    x_stdev += np.ma.masked_array( x, mask= mask1).std() # might be able to speed up by avoiding masked arrays, but this prevents introduction of NaNs etc 
+                    y_stdev += np.ma.masked_array( y, mask= mask2).std()
+                    corr += self._correlate_rows(x, y, 4 , mask1, mask2, mean_only=True)
+                corr /= (x_stdev * y_stdev )
+
             
         else:
             x = self.polar_intensities[inter_pairs[:,0],q_ind1,:] # shots at ring1
             y = self.polar_intensities[inter_pairs[:,1],q_ind2,:] # shots at ring2
-            corr = self._correlate_rows(x, y, mask1, mask2,mean_norm=mean_norm)
+            corr = self._correlate_rows(x, y, norm, mask1, mask2)
 
         return corr
         
         
     @staticmethod
-    def _correlate_rows(x, y, x_mask=None, y_mask=None, mean_only=False,mean_norm=True):
+    def _correlate_rows(x, y, norm, x_mask=None, y_mask=None, mean_only=False ):
         """
         Compute the circular correlation function across the rows of x,y. Note
         that *all* ODIN correlation functions are defined as:
@@ -1904,7 +1944,13 @@ class Rings(object):
         x,y : np.ndarray, float
             2D arrays of size N x M, where N indexes "experiments" and M indexes
             an observation vector for each experiment.
-            
+        
+        norm : int
+            Type of normalization ( 0 : mean shot by shot, 
+                                    1 : stdev shot by shot, 
+                                    2 : total mean, 
+                                    3 : total stdev , 
+                                    4 : none )
         Optional Parameters
         -------------------
         x_mask,y_mask : np.ndarray, bool
@@ -1915,10 +1961,6 @@ class Rings(object):
             Return the mean of the correlation function. Default is to return
             each correlation individually.
         
-        mean_norm , bool
-            True -> normalize correlations by the mean
-            False -> normalize correlations by the standard deviation
-            
         Returns
         -------
         corr : np.ndarray, float
@@ -1941,6 +1983,9 @@ class Rings(object):
         if not y.shape == x.shape:
             raise ValueError('`x`,`y` must have the same shape')
         
+        if norm not in (0,1,2,3,4):
+            raise ValueError('Specify a normalization integer. See doc string for details.' ) 
+
         n_row = x.shape[0]
         n_col = x.shape[1]
 
@@ -1957,6 +2002,7 @@ class Rings(object):
         # if no mask
         if ((x_mask == None) and (y_mask == None)):
             
+#           use these for mean subtracting, not normalizing
             x_bar = x.mean(axis=1)[:,None]
             y_bar = y.mean(axis=1)[:,None]
             
@@ -1967,18 +2013,55 @@ class Rings(object):
             assert corr.shape == (n_row, n_col)
             
             # normalize
-            if mean_norm:
-                corr = corr / ( float(n_col) * x_bar * y_bar )
-            else:
-                x_stdev = (x-x_bar).std(1)[:,None]
-                y_stdev = (y-y_bar).std(1)[:,None]
+            if norm == 0:
+                corr  = corr / ( float(n_col) * x_bar * y_bar )
+            
+            elif norm == 1:
+                x_stdev = (x).std(1)[:,None]
+                y_stdev = (y).std(1)[:,None]
                 corr = corr / ( float(n_col) * x_stdev * y_stdev )
-                    
+
+            elif norm == 2:
+                x_bar = x.mean()
+                y_bar = y.mean()
+                corr /= ( float(n_col) * x_bar * y_bar )
+            
+            elif norm == 3:
+                x_stdev = (x).std()
+                y_stdev = (y).std()
+                corr = corr / ( float(n_col) * x_stdev * y_stdev )
+        
         # if using mask
         else:
-            corr = np.zeros((n_row, n_col))
-            for i in range(n_row):
-                corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], mean_norm)
+            corr = np.zeros( (n_row, n_col) )
+
+            if norm == 0 :
+                for i in range(n_row):
+                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 0)
+            
+            elif norm == 1 :
+                for i in range(n_row):
+                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 1)
+            
+            elif norm == 2 :
+                for i in range(n_row):
+                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 2)
+                
+                x_bar = np.ma.masked_array( x, mask = np.tile( np.logical_not( x_mask) , n_row   ).reshape( ( n_row , n_col ))  ).mean()
+                y_bar = np.ma.masked_array( y, mask = np.tile( np.logical_not( y_mask) , n_row   ).reshape( ( n_row , n_col ))  ).mean()
+                corr /= (x_bar * y_bar ) 
+            
+            elif norm == 3 :
+                for i in range(n_row):
+                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 2)
+                
+                x_stdev = np.ma.masked_array( x, mask = np.tile( np.logical_not( x_mask) , n_row   ).reshape( ( n_row , n_col ))  ).std()
+                y_stdev = np.ma.masked_array( y, mask = np.tile( np.logical_not( y_mask) , n_row   ).reshape( ( n_row , n_col ))  ).std()
+                corr /= (x_stdev * y_stdev ) 
+            
+            elif norm ==4 :
+                for i in range(n_row):
+                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 2)
 
         if mean_only:
             corr = corr.mean(axis=0) # average all shots
@@ -2047,10 +2130,10 @@ class Rings(object):
         # correlation between those two rings into the Legendre basis
 
         if use_inter_statistics:
-            corr = self.correlate_intra(q1, q2, mean_only=True) - \
-                   self.correlate_inter(q1, q2, mean_only=True)
+            corr = self.correlate_intra(q1, q2,0, mean_only=True) - \
+                   self.correlate_inter(q1, q2,0, mean_only=True)
         else:
-            corr = self.correlate_intra(q1, q2, mean_only=True)
+            corr = self.correlate_intra(q1, q2, 0,mean_only=True)
         
         corr = self._convert_to_kam( q1, q2, corr )
 

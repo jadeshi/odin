@@ -67,7 +67,7 @@ def main(input_file, output_file, max_intensity=0.0, n_maxima_cutoff=5):
         ax = plt.subplot2grid((n_maxima,5), (i,2), colspan=3)
         q = I[maxima[i],0]
         ring = shotset.to_rings( [q],360.0 )
-        ax.plot(ring.phi_values,  ring.correlate_intra( q,q,mean_only=True) , lw=2) # in deg
+        ax.plot(ring.phi_values,  ring.correlate_intra( q,q,0, mean_only=True) , lw=2) # in deg
         ax.set_ylabel(r'$C(q, \Delta)$')
         ax.set_xlim([0,360])
         ax.yaxis.set_major_locator(MultipleLocator(0.5))
