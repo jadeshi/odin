@@ -12,8 +12,8 @@ or mc.py) to run simulations. Further,
 
 class ExptPotential(object):
     """
-    A posterior potential that enforces a set of experimental constraints.
-    """
+A posterior potential that enforces a set of experimental constraints.
+"""
     
     def __init__(self, expt_data_collection):
         
@@ -22,34 +22,45 @@ class ExptPotential(object):
         
     def __call__(self, xyz):
         """
-        Takes a set of xyz coordinates and evaluates the potential on that
-        conformation.
-        
-        """
+Takes a set of xyz coordinates and evaluates the potential on that
+conformation.
+"""
         
         return energy
     
         
+    @property
+    def converged(self):
+        return self._evaluate_convergence()
+    
+        
     def prior(self):
         # need to think!
+        # this can be evaluated different ways depending on what kind of sampling
+        # gets performed. The best would be to have OpenMM plugged directly in
+        # here, but that might not be possible
         pass
     
         
     def optimize_lambdas(algorithm='default'):
         """
-        This is the only place where the experimentally measured data actually 
-        gets used.
-        """
+This is the only place where the experimentally measured data actually
+gets used.
+"""
         pass
     
         
     def fi(self, xyz):
         """
-        Compute all the f_i values for a configuration `xyz`
-        """
+Compute all the f_i values for a configuration `xyz`
+"""
         pass
     
         
     def _hessian(self):
         
+        pass
+        
+        
+    def _evaluate_convergence(self):
         pass
