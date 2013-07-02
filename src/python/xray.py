@@ -1697,29 +1697,29 @@ class Rings(object):
         return int(q_ind)
 
 
-    def normalize(self):
+    def _normalize_intensities(self):
         """
-        Normalizes the intensitues of each ring-shot by the average value around the ring.
-        Parameters
-        ----------
-        None : void
+        Normalizes the intensities of each ring/shot by the average value around
+        the ring.
         """
+        
+        logger.warning('Normalizing rings discards information about the '
+                       'relative ring intensities... be sure you want to do this.')
         
         I      = self.polar_intensities
         mask   = self.polar_mask
          
-#       give each shot unit mean 
+        # give each shot unit mean 
         I_mean = np.sum( I * mask, axis=2 ) / np.sum( mask,axis=1)
-        I     /= I_mean[:,:,None]
+        I /= I_mean[:,:,None]
         
-#       divide each polar pixel by its mean across the shot set, normalzes out some detector artifacts
+        # divide each polar pixel by its mean across the shot set, normalzes out some detector artifacts
         I_mean = np.sum( I*mask, axis=0 ) / self.num_shots
-        I     /= I_mean
-        
-#       This doesn;t matter since only masked pixels become nans in this normalization
-        I      = np.nan_to_num( I )
-        
-#       consider re-scaling the intensity in |q|
+        I /= I_mean
+
+        # this results in NaNs and Infs, so we have to kill those
+        I = np.nan_to_num( I )
+        I[ np.isinf(I) ] = 0.0
         
         return
 
