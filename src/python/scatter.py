@@ -146,7 +146,7 @@ def simulate_shot(traj, num_molecules, detector, traj_weights=None,
                 num_cpu = num % 512
                 num_gpu = num - num_cpu
             
-            logger.info('Running %d molecules from snapshot %d...' % (num, i))  
+            logger.info('Running %d molecules from snapshot %d, (%d CPU / %d GPU).' % (num, i, num_cpu, num_gpu))  
 
             # multiprocessing cannot return values, so generate a helper function
             # that will dump returned values into a shared array
