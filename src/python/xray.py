@@ -1724,7 +1724,7 @@ class Rings(object):
         return
 
 
-    def dePolarize(self, outOfPlane=0.99):
+    def depolarize(self, out_of_plane=0.99):
         """
         Applies a polarization correction to the rings.
         Parameters
