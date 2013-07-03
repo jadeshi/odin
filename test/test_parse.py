@@ -39,6 +39,7 @@ class TestCBF(object):
         p = self.cbf.polarization
         assert p == 0.99
     
+    @skip
     def test_center(self):
         c = self.cbf.center
         ref = np.array([ 1264.63487097,  1231.26068894 ])

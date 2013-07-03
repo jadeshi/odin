@@ -1727,10 +1727,12 @@ class Rings(object):
     def depolarize(self, out_of_plane=0.99):
         """
         Applies a polarization correction to the rings.
+        
         Parameters
         ----------
-        outOfPlane : float
-            The fraction of the beam polarization out of the synchrotron plane (between 0 and 1)
+        out_of_plane : float
+            The fraction of the beam polarization out of the synchrotron plane 
+            (between 0 and 1).
         """
         qs   = self.q_values
         wave = 2. * np.pi / self.k
@@ -1741,8 +1743,8 @@ class Rings(object):
             q         = qs[i]
             theta     = np.arcsin( q*wave / 4./ np.pi)
             SinTheta  = np.sin( 2 * theta )
-            correctn  = outOfPlane      * ( 1. - SinTheta**2 * np.cos( phis )**2 )
-            correctn += (1.-outOfPlane) * ( 1. - SinTheta**2 * np.sin( phis )**2 )
+            correctn  = out_of_plane      * ( 1. - SinTheta**2 * np.cos( phis )**2 )
+            correctn += (1.-out_of_plane) * ( 1. - SinTheta**2 * np.sin( phis )**2 )
             I[:,i,:]  /= correctn
 
         return 
