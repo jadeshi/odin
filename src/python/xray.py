@@ -2091,11 +2091,11 @@ class Rings(object):
         if not len(corr.shape) == 1:
             raise ValueError('`corr` must be a one-dimensional array')
         
-        cosPsi  = self._cospsi(q1,q2)           # azimuathal to cos(psi)
-        cosPsi  = np.append( cosPsi, -cosPsi )  # Adding the Friedel pairs...
-        newCor  = np.append( corr, corr )       # C [cos(psi) ] = C [cos(-psi)]
+        cos_psi  = self._cospsi(q1, q2)           # azimuathal to cos(psi)
+        #cosPsi  = np.append( cosPsi, -cosPsi )  # Adding the Friedel pairs...
+        #newCor  = np.append( corr, corr )       # C [cos(psi) ] = C [cos(-psi)]
         
-        kam_corr = np.vstack((cosPsi, newCor)).T
+        kam_corr = np.vstack((cos_psi, corr)).T
         kam_corr = kam_corr[ np.argsort(kam_corr[:,0]) ] # sort ascending angle
         
         return kam_corr
