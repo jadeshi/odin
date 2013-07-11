@@ -896,6 +896,11 @@ class Shotset(object):
     """
     A collection of xray 'shots', and methods for anaylzing statistical
     properties across shots (each shot a single x-ray image).
+        
+    The key power/functionality of Shotset is that it provides a layer of
+    abstraction over the intensity data on disk. Specifically, it provides many
+    powerful capabilities for analyzing data sets that are larger than can
+    fit in memory.
     """
 
     def __init__(self, intensities, detector, mask=None):
@@ -904,10 +909,21 @@ class Shotset(object):
 
         Parameters
         ----------
-        intensities : ndarray, float
+        intensities : ndarray, float OR types.GeneratorType
+            There are two ways to pass intensity data: either as an explicit
+            numpy array in memory, or as a generator object that will iterate
+            over individual shots. The generator allows for an implicit
+            representation of the intensity data to be passed -- the data may
+            actually be on disk, for instance.
+            
+            Array:
             Either a list of one-D arrays, or a two-dimensional array. The first
             dimension should index shots, the second intensities for each pixel
             in that shot.
+            
+            Generator:
+            A generator that yields one-D numpy arrays, each array representing
+            the intensities for a single shot.
 
         detector : odin.xray.Detector
             A detector object, containing the pixel positions in space.
@@ -937,23 +953,37 @@ class Shotset(object):
                 if not s[0] == self.detector.num_pixels:
                     raise ValueError('`intensities` does not have the same '
                                      'number of pixels as `detector`')
-                self.intensities = intensities[None,:]
+                self._intensities_handle = intensities[None,:]
 
             elif len(s) == 2:
                 if not s[1] == self.detector.num_pixels:
                     raise ValueError('`intensities` does not have the same '
                                      'number of pixels as `detector`')
-                self.intensities = intensities
+                self._intensities_handle = intensities
 
             else:
                 raise ValueError('`intensities` has a invalid number of '
                                  'dimensions, must be 1 or 2 (got: %d)' % len(s))
+                                 
+            assert len(self.intensities.shape) == 2
+                                 
+        elif isinstance(gen, types.GeneratorType):
+            self._intensities_handle = intensities
+            
+            # do a quick sanity check on the first intensity entry
+            for i in self._intensities_handle:
+                if not type(i) == np.ndarray:
+                    raise TypeError('`intensities` generator must yield '
+                                    'np.ndarray objects')
+                if not len(i) == self.detector.num_pixels:
+                    raise ValueError('`intensities` does not have the same '
+                                     'number of pixels as `detector`')
+                break
 
         else:
-            raise TypeError('`intensities` must be type ndarray')
+            raise TypeError('`intensities` must be type: {ndarray, types.GeneratorType}')
 
-        assert len(self.intensities.shape) == 2
-
+        
         # parse mask
         if mask != None:
             mask = mask.flatten()
@@ -961,21 +991,43 @@ class Shotset(object):
                 raise ValueError('Mask must a len `detector.num_pixels` array')
             self.mask = np.array(mask.flatten()).astype(np.bool)
         else:
-            #self.mask = np.zeros(self.detector.num_pixels, dtype=np.bool)
             self.mask = None
 
 
         return
-
-
+        
+        
     @property
     def num_shots(self):
+        """
+        Return the number of shots. Note that this may be slow if the intensity
+        data is large and on disk...
+        """
         return self.intensities.shape[0]
-        
-        
+    
+
     @property
     def num_pixels(self):
-        return self.intensities.shape[1]
+        return self.detector.num_pixels
+    
+
+    @property
+    def intensities(self):
+        """
+        Fetch the intensity data from disk and return it as an array.
+        """
+        if type(self._intensities_handle) == np.ndarray:
+            return self._intensities_handle
+        elif isinstance(gen, types.GeneratorType):
+            return np.array([ i for i in self.intensity_iter ])
+            
+            
+    def intensity_iter(self):
+        """
+        An python generator providing a method to iterate over intensity data
+        stored on disk.
+        """
+        return self._intensities_handle
     
 
     def __len__(self):
@@ -1005,8 +1057,8 @@ class Shotset(object):
 
     @property
     def average_intensity(self):
-        return self.intensities.sum(0) # average over shots
-
+        return np.sum( self.intensities_iter, axis=0 ) # average over shots
+    
 
     @staticmethod
     def num_phi_to_values(num_phi):
@@ -1102,7 +1154,7 @@ class Shotset(object):
         return pg_real
 
 
-    def interpolate_to_polar(self, q_values=None, num_phi=360, q_spacing=0.02):
+    def interpolate_to_polar(self, q_values, num_phi):
         """
         Interpolate our cartesian-based measurements into a polar coordiante
         system.
@@ -1129,15 +1181,6 @@ class Shotset(object):
             A mask of ones and zeros. Ones are kept, zeros masked. Shape and
             pixels correspond to `interpolated_intensities`.
         """
-
-        # compute q_values if need be
-        if q_values != None:
-            q_values = np.array(q_values)
-        else:
-            q_min     = q_spacing
-            q_max     = self.detector.q_max
-            q_values  = np.arange(q_min, q_max, q_spacing)
-
 
         # check to see what method we want to use to interpolate. Here,
         # `unstructured` is more general, but slower; implicit/structured assume
@@ -1428,7 +1471,7 @@ class Shotset(object):
         return ss
 
 
-    def to_rings(self, q_values, num_phi=360):
+    def to_rings(self, q_values, num_phi=360, rings_filename=None):
         """
         Convert the shot to an xray.Rings object, for computing correlation
         functions and other properties in polar space.
@@ -1445,13 +1488,65 @@ class Shotset(object):
         num_phi : int
             The number of equally spaced points around the azimuth to
             interpolate onto (e.g. `num_phi`=360 means 1 deg spacing).
+            
+        rings_filename : str OR None
+            A path to a file to write the rings object to. If `None` is
+            provided, returns the rings object in memory. Writing to disk
+            will alleviate memory use by storing the resulting rings object
+            to disk in an intelligent way.
         """
 
-        logger.info('Converting %d shots to polar space (Rings)' % self.num_shots)
-        pi, pm = self.interpolate_to_polar(q_values=q_values, num_phi=num_phi)
-        r = Rings(q_values, pi, self.detector.k, pm)
+        logger.info('Converting shotset to polar space (Rings)')
+        
+                              
+        # the easy way : keep everything in memory
+        if not rings_filename:
+            
+            # polar_intensities_output=None automatically generates an array for
+            # the output downstream
+            pi, pm = self.interpolate_to_polar(q_values, num_phi)
+            rings_obj = Rings(q_values, pi, self.detector.k, pm)
+            ret_val = rings_obj
+            
+            
+        # the good way : lazy load/write in chunks
+        elif type(rings_filename) == str:
+            
+            if not rings_filename.endswith('.ring'):
+                rings_filename += '.str'
+                
+            # generate the rings file on disk
+            h5_handle = tables.File(rings_filename)
+            
+            # but we want `polar_intensities` to be an EArray
+            # the value for expectedrows is just a guess...
+            atom = tables.Atom.from_dtype(self.polar_intensities.dtype)
+            pi_node = f.handle.createEArray(where='/', name='polar_intensities',
+                                            shape=( 1, len(q_values), num_phi ), 
+                                            atom=atom, filters=io.COMPRESSION,
+                                            expectedrows=100000)
+                                            
+            # populate the array on disk with the interpolated values
+            pi, pm = self.interpolate_to_polar(q_values, num_phi, 
+                                               polar_intensities_output=pi_node)
+                                           
+            # add metadata to the rings file
+            io.saveh( h5_handle,
+                      q_values = q_values,
+                      k = np.array([self.detector.k]),
+                      polar_mask = pm )
 
-        return r
+            logger.info('Wrote %s to disk.' % filename)
+            h5_handle.close()
+            
+            ret_val = 0
+            
+            
+        else:
+            raise ValueError('`rings_filename` must be {None, str}')
+            
+
+        return ret_val
 
 
     def save(self, filename):
@@ -1683,7 +1778,7 @@ class Rings(object):
         q_ind : int
             The index to slice `polar_intensities` at to get |q|.
         """
-	
+	    
         # check if there are rings at q
         q_ind = np.where( np.abs(self.q_values - q) < tolerance )[0]
         
@@ -2004,7 +2099,7 @@ class Rings(object):
         # if no mask
         if ((x_mask == None) and (y_mask == None)):
             
-#           use these for mean subtracting, not normalizing
+            # use these for mean subtracting, not normalizing
             x_bar = x.mean(axis=1)[:,None]
             y_bar = y.mean(axis=1)[:,None]
             
@@ -2298,12 +2393,23 @@ class Rings(object):
             pm = np.array([0])
         else:
             pm = self.polar_mask
+            
+        f = tables.File(filename)
 
+        # these are going to be CArrays
         io.saveh( filename,
                   q_values = self._q_values,
-                  polar_intensities = self.polar_intensities,
                   k = np.array([self.k]),
                   polar_mask = pm )
+                  
+        # but we want `polar_intensities` to be an EArray
+        atom = tables.Atom.from_dtype(self.polar_intensities.dtype)
+        pi_node = f.handle.createCArray(where='/', name='polar_intensities',
+                                        shape=self.polar_intensities.shape, 
+                                        atom=atom, filters=io.COMPRESSION)
+        pi_node[:] = self.polar_intensities
+        
+        f.close()
 
         logger.info('Wrote %s to disk.' % filename)
 
@@ -2361,14 +2467,10 @@ class Rings(object):
         combined_pi = np.vstack( (self.polar_intensities, other_rings.polar_intensities) )
         self.polar_intensities = combined_pi
 
-        # TJL changed call signature to be like List.append()
-        #combined = Rings(self.q_values, combined_pi, self.k, polar_mask=self.polar_mask)
-        #return combined
-
         return
 
 
-    def smooth_intensities(self , q , beta=10.0, window_size=11, copy = True ):
+    def smooth_intensities(self, q, beta=10.0, window_size=11, copy=True):
         """
         Apply an intensity smoothing function to a Rings object.
         
@@ -2397,7 +2499,7 @@ class Rings(object):
             An odin Rings object
         """
 
-        if type ( q ) == float:
+        if type(q) == float:
             qs = [q]
         
         if copy == True:
@@ -2408,9 +2510,9 @@ class Rings(object):
             for q in qs :
                 i_q = self.q_index( q )
                 for i_shot in xrange( n_shot ) :
-                    rp[ i_shot, i_q ] = smooth( rp[ i_shot, i_q ], beta, window_size )
+                    rp[ i_shot, i_q ] = smooth(rp[ i_shot, i_q ], beta, window_size)
 
-            new_ring = Rings ( self.q_values, rp, self.k, self.polar_mask )
+            new_ring = Rings(self.q_values, rp, self.k, self.polar_mask)
 
             return new_ring
         
@@ -2424,7 +2526,7 @@ class Rings(object):
                 for i_shot in xrange( n_shot ) :
                     rp[ i_shot, i_q ] = smooth( rp[ i_shot, i_q ], beta, window_size )
 
-            ring = Rings ( self.q_values, rp, self.k, self.polar_mask )
+            ring = Rings(self.q_values, rp, self.k, self.polar_mask)
 
             return ring
 
