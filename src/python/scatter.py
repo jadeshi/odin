@@ -6,6 +6,7 @@ Library for performing simulations of x-ray scattering experiments.
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
+#logger.setLevel('DEBUG')
 
 import numpy as np
 from scipy import misc, special
@@ -146,7 +147,7 @@ def simulate_shot(traj, num_molecules, detector, traj_weights=None,
                 num_cpu = num % 512
                 num_gpu = num - num_cpu
             
-            logger.info('Running %d molecules from snapshot %d, (%d CPU / %d GPU).' % (num, i, num_cpu, num_gpu))  
+            logger.info('Running %d molc, snapshot %d, dev %d: %d CPU / %d GPU.' % (num, i, device_id, num_cpu, num_gpu))  
 
             # multiprocessing cannot return values, so generate a helper function
             # that will dump returned values into a shared array
@@ -166,14 +167,14 @@ def simulate_shot(traj, num_molecules, detector, traj_weights=None,
             # run dat shit
             if num_cpu > 0:
                 logger.debug('Running CPU scattering code (%d/%d)...' % (num_cpu, num))
-                cpu_args = (num_cpu, qxyz, rxyz, atomic_numbers)
+                cpu_args = (num_cpu, qxyz, rxyz, atomic_numbers, None)
                 t_cpu = Thread(target=multi_helper, args=('cpu', cpu_args))
                 t_cpu.start()
                 threads.append(t_cpu)                
 
             if num_gpu > 0:
-                logger.debug('Sending calculation to GPU device...')
-                gpu_args = (num_gpu, qxyz, rxyz, atomic_numbers, device_id)
+                logger.debug('Sending calc to GPU dev: %d' % device_id)
+                gpu_args = (num_gpu, qxyz, rxyz, atomic_numbers, device_id, None)
                 t_gpu = Thread(target=multi_helper, args=('gpu', gpu_args))
                 t_gpu.start()
                 threads.append(t_gpu)
