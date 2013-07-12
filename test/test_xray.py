@@ -5,6 +5,7 @@ Tests: src/python/xray.py
 
 import os, sys
 import warnings
+import tables
 from nose import SkipTest
 
 from odin import xray, utils, parse, structure, math2, utils, _cpuscatter
@@ -251,11 +252,11 @@ class TestShotset(object):
 
     def test_mask_argument(self):
         # simple smoke test to make sure we can interpolate with a mask
-        q_value = np.array([1.0, 2.0])
+        q_values = np.array([1.0, 2.0])
         num_phi = 360
         mask = np.random.binomial(1, 0.1, size=self.i.shape)
         s = xray.Shotset(self.i, self.d, mask=mask)
-        s.interpolate_to_polar()
+        s.interpolate_to_polar(q_values, self.num_phi)
 
     # missing test: test_assemble (ok for now)
 
@@ -279,7 +280,7 @@ class TestShotset(object):
         q_values = np.array([2.0, 2.67, 3.7]) # should be a peak at |q|=2.67
         t = structure.load_coor(ref_file('gold1k.coor'))
         s = xray.Shotset.simulate(t, self.d, 3, 1)
-        pi, pm = s.interpolate_to_polar(q_values=q_values)
+        pi, pm = s.interpolate_to_polar(q_values, self.num_phi)
         ip = np.sum(pi[0,:,:], axis=1)
         assert ip[1] > ip[0]
         assert ip[1] > ip[2]
@@ -290,7 +291,7 @@ class TestShotset(object):
         t = structure.load_coor(ref_file('gold1k.coor'))
         self.d.implicit_to_explicit()
         s = xray.Shotset.simulate(t, self.d, 3, 1)
-        pi, pm = s.interpolate_to_polar(q_values=q_values)
+        pi, pm = s.interpolate_to_polar(q_values, self.num_phi)
         ip = np.sum(pi[0,:,:], axis=1)
         assert ip[1] > ip[0]
         assert ip[1] > ip[2]
@@ -303,8 +304,8 @@ class TestShotset(object):
         de = xray.Detector.generic(spacing=0.4, force_explicit=True)
         s1 = xray.Shotset(self.i, self.d)
         s2 = xray.Shotset(self.i, de)
-        p1, m1 = s1.interpolate_to_polar(q_values=q_values)
-        p2, m2 = s2.interpolate_to_polar(q_values=q_values)
+        p1, m1 = s1.interpolate_to_polar(q_values, self.num_phi)
+        p2, m2 = s2.interpolate_to_polar(q_values, self.num_phi)
         p1 /= p1.max()
         p2 /= p2.max()
         assert_allclose(p1[0,0,1:].flatten(), p2[0,0,1:].flatten(), err_msg='interp intensities dont match',
@@ -433,13 +434,47 @@ class TestShotset(object):
         assert_array_almost_equal(s.intensity_profile(),
                                   self.shot.intensity_profile() )
 
+    @skip # not in yet
     def test_iter_n_slice(self):
         s = self.shot[0]
         assert len(s) == 1
 
+    @skip # not in yet
     def test_add_n_len(self):
         ss = self.shot + self.shot
         assert len(ss) == 2 * len(self.shot)
+        
+        
+class TestShotsetFromDisk(TestShotset):
+    """
+    Test all the same shotset functionality, but working from the intensities
+    on disk via pytables. Works by subclassing TestShotset but overwriting the
+    setup() method.
+    """
+    
+    def setup(self):
+        
+        self.q_values = np.array([1.0, 2.0])
+        self.num_phi  = 360
+        self.l = 50.0
+        self.d = xray.Detector.generic(spacing=0.4, l=self.l)
+        self.t = trajectory.load(ref_file('ala2.pdb'))
+        
+        # generate the tables file on disk (2 shots), then re-open it
+        intensities = np.abs(np.random.randn(2, self.d.num_pixels))
+        io.saveh('tmp_tables.h5', data=intensities)
+        
+        self.tables_file = tables.File('tmp_tables.h5')
+        self.i = self.tables_file.root.data
+        
+        self.shot = xray.Shotset(self.i, self.d)
+        
+        return
+        
+    def teardown(self):
+        self.tables_file.close()
+        os.remove('tmp_tables.h5')
+        return
 
 
 class TestRings(object):
