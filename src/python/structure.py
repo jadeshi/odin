@@ -18,7 +18,7 @@ from odin.math2 import rand_rot
 
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.DEBUG)
 
 
 class quaternion(object):
@@ -182,7 +182,7 @@ def remove_COM(traj):
     """
     
     for i in range(traj.n_frames):
-        masses = [ a.element.mass for a in traj.topology.atoms() ]
+        masses = [ a.element.mass for a in traj.topology.atoms ]
         traj.xyz[i,:,:] -= np.average(traj.xyz[i,:,:], axis=0, weights=masses)
         
     return traj
@@ -278,7 +278,7 @@ def rand_rotate_traj(traj, remove_COM=False):
     return traj
 
 
-def multiply_conformations(traj, num_replicas, density,  traj_weights=None):
+def multiply_conformations(traj, num_replicas, density, traj_weights=None):
     """
     Take a structure and generate a system of many conformations, such that they
     are randomly distributed & rotated in space with a given `density`.
@@ -357,7 +357,7 @@ def multiply_conformations(traj, num_replicas, density,  traj_weights=None):
     
     centers_of_mass = np.zeros((num_replicas, 3)) # to store these and use later
     
-#   randomize the first molecule
+    # randomly orient the first molecule
     xyz[0,:,:]         = rand_rotate_molecule2(xyz[0,:,:])
     centers_of_mass[0] = np.random.uniform(low=0, high=boxsize, size=3)
     for x in xrange(3):
@@ -400,6 +400,7 @@ def multiply_conformations(traj, num_replicas, density,  traj_weights=None):
 
     return out_traj
 
+
 def load_coor(filename):
     """
     Load a simple coordinate file, formatted as:
@@ -422,10 +423,11 @@ def load_coor(filename):
     data = np.genfromtxt(filename)
     xyz = data[:,:3] / 10.0 # coor files are in angstoms, conv. to nm
     atomic_numbers = data[:,3]
-    structure = traj_from_xyza( xyz , atomic_numbers )
+    structure = _traj_from_xyza(xyz, atomic_numbers)
     return structure
+
     
-def traj_from_xyza( xyz, atomic_numbers, units='nm' ):
+def _traj_from_xyza(xyz, atomic_numbers, units='nm'):
     """
     Parameters
     ----------
@@ -451,8 +453,8 @@ def traj_from_xyza( xyz, atomic_numbers, units='nm' ):
         xyz /= 10.
 
     top = Topology()
-    chain = top.addChain()
-    residue = top.addResidue('XXX', chain)
+    chain = top.add_chain()
+    residue = top.add_residue('XXX', chain)
     
     for i in range(xyz.shape[0]):
         element_symb = periodic_table[atomic_numbers[i]][1] # should give symbol

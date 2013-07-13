@@ -326,8 +326,7 @@ class TestFinitePhoton(object):
     def test_cpu(self):
         
         cpu_I = _cpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
-                                    self.atomic_numbers, rfloats=self.rfloats, 
-                                    poisson_parameter=1.0)
+                                    self.atomic_numbers, rfloats=self.rfloats)
              
         # assert_allclose( cpu_I, np.array([0., 23886.]) ) # the random system
                                                            # on travis is different...
@@ -339,12 +338,10 @@ class TestFinitePhoton(object):
         if not GPU: raise SkipTest
         
         gpu_I = _gpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
-                                    self.atomic_numbers, rfloats=self.rfloats, 
-                                    poisson_parameter=1.0)
+                                    self.atomic_numbers, rfloats=self.rfloats)
                                     
         cpu_I = _cpuscatter.simulate(self.num_molecules, self.q_grid, self.xyzlist, 
-                                    self.atomic_numbers, rfloats=self.rfloats, 
-                                    poisson_parameter=1.0)
+                                    self.atomic_numbers, rfloats=self.rfloats)
         
         # assert_allclose( cpu_I, gpu_I )
         
