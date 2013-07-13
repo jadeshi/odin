@@ -949,10 +949,10 @@ class Shotset(object):
         if type(intensities) in [np.ndarray, 
                                  tables.earray.EArray,
                                  tables.carray.CArray]:
-            self._intensities_handle = intensities
-            
+            self._intensities = intensities
         else:
-            raise TypeError('`intensities` must be type: {ndarray, iterable}')
+            raise TypeError('`intensities` must be type: {ndarray, EArray, '
+                            'CArray}. Got %s' % type(intensities))
 
 
         # check that the data dimensions work out
@@ -962,13 +962,13 @@ class Shotset(object):
             if not s[0] == self.detector.num_pixels:
                 raise ValueError('`intensities` does not have the same '
                                  'number of pixels as `detector`')
-            self._intensities_handle = intensities[None,:]
+            self._intensities = intensities[None,:]
 
         elif len(s) == 2:
             if not s[1] == self.detector.num_pixels:
                 raise ValueError('`intensities` does not have the same '
                                  'number of pixels as `detector`')
-            self._intensities_handle = intensities
+            self._intensities = intensities
 
         else:
             raise ValueError('`intensities` has a invalid number of '
@@ -996,7 +996,7 @@ class Shotset(object):
         Return the number of shots. Note that this may be slow if the intensity
         data is large and on disk...
         """
-        return int(self._intensities_handle.shape[0])
+        return int(self._intensities.shape[0])
     
 
     @property
@@ -1009,26 +1009,33 @@ class Shotset(object):
         """
         Fetch the intensity data from disk and return it as an array.
         """
-        if type(self._intensities_handle) == np.ndarray:
-            return self._intensities_handle
-        elif type(self._intensities_handle) in [tables.earray.EArray, 
+        if type(self._intensities) == np.ndarray:
+            i_data = self._intensities
+        elif type(self._intensities) in [tables.earray.EArray, 
                                                 tables.carray.CArray]:
             try:
-                return np.array([ i for i in self._intensities_handle ])
+                i_data = self._intensities.read()
             except MemoryError as e:
                 logger.critical(e)
                 raise MemoryError('Insufficient memory to complete operation.'
                                   ' Work with intensity data on disk.')
         else:
-            raise RuntimeError('incorrect type in self._intensities_handle')
+            raise RuntimeError('incorrect type in self._intensities')
+        return i_data
             
-            
-    def intensity_iter(self):
+    
+    @property        
+    def intensities_iter(self):
         """
         An python generator providing a method to iterate over intensity data
         stored on disk.
         """
-        return self._intensities_handle
+        if type(self._intensities) == np.ndarray:
+            i_iter = self._intensities
+        elif type(self._intensities) in [tables.earray.EArray,
+                                   tables.carray.CArray]:
+            i_iter = self._intensities.iterrows()
+        return i_iter
     
 
     def __len__(self):
@@ -1052,7 +1059,7 @@ class Shotset(object):
     @property
     def average_intensity(self):
         # average should work for both iterable and array
-        avg = np.mean(self._intensities_handle, axis=0)
+        avg = np.mean(self._intensities, axis=0)
         assert avg.shape == (self.num_pixels,)
         return avg
     
@@ -1320,10 +1327,10 @@ class Shotset(object):
         # --- loop over shots
         #     actually do the interpolation
 
-        int_start  = 0 # start of intensity array correpsonding to `grid`
-        int_end    = 0 # end of intensity array correpsonding to `grid`
-
-        for shot,intensities in enumerate(self._intensities_handle):
+        for shot,intensities in enumerate(self.intensities_iter):
+            
+            int_start  = 0 # start of intensity array correpsonding to `grid`
+            int_end    = 0 # end of intensity array correpsonding to `grid`
             
             logger.debug('interpolating shot %d' % (shot+1,)) # , self.num_shots))
             shot_pi = np.zeros(num_q * num_phi)
@@ -1385,7 +1392,7 @@ class Shotset(object):
             # slice all
             aug_mask = slice(0, self.detector.num_pixels + len(add))
 
-        for intensities in self._intensities_handle:
+        for intensities in self.intensities_iter:
 
             aug_int = np.concatenate(( intensities[:],
                                        intensities[add] ))
@@ -1742,6 +1749,17 @@ class Rings(object):
             `None`, meaning no masked pixels
         """
 
+        # this should *not* be an elif
+        if type(polar_intensities) == np.ndarray:
+            self._polar_intensities = np.copy( polar_intensities )
+        elif type(polar_intensities) in [tables.earray.EArray,
+                                         tables.carray.CArray]:
+            self._polar_intensities = polar_intensities
+        else:
+            raise TypeError('`polar_intensities` must have type {ndarray, '
+                            'EArray, CArray}. Got: %s' % type(polar_intensities))
+
+
         if not polar_intensities.shape[1] == len(q_values):
             raise ValueError('`polar_intensities` must have same len as '
                              '`q_values` in its second dimension.')
@@ -1759,16 +1777,43 @@ class Rings(object):
         else:
             raise TypeError('`polar_mask` must be np.ndarray or None')
 
-        self._q_values         = np.array(q_values)           # q values of the ring data
-        self.polar_intensities = np.copy(polar_intensities)   # copy data so don't over-write
-        self.k                 = k                            # wave number
+        self._q_values = np.array(q_values)  # q values of the ring data
+        self.k         = k                   # wave number
 
         return
 
 
     @property
+    def polar_intensities(self):
+        if type(self._polar_intensities) == np.ndarray:
+            pi_data = self._polar_intensities
+        elif type(polar_intensities) in [tables.earray.EArray,
+                                         tables.carray.CArray]:
+            try:
+                pi_data = self._polar_intensities.read()
+            except MemoryError as e:
+                logger.critical(e)
+                raise MemoryError('insufficient memory to load up all intensity data')
+        else:
+            raise RuntimeError('incorrect type in self._intensities')
+        return pi_data
+    
+        
+    @property
+    def polar_intensities_iter(self):
+        if type(self._polar_intensities) == np.ndarray:
+            pi_iter = self._polar_intensities
+        elif type(polar_intensities) in [tables.earray.EArray,
+                                         tables.carray.CArray]:
+            pi_iter = self._polar_intensities.iterrows()
+        else:
+            raise RuntimeError('incorrect type in self._intensities')
+        return pi_iter
+    
+
+    @property
     def num_shots(self):
-        return self.polar_intensities.shape[0]
+        return self._polar_intensities.shape[0]
 
 
     @property
@@ -1857,31 +1902,32 @@ class Rings(object):
         return int(q_ind)
 
 
-    def _normalize_intensities(self):
-        """
-        Normalizes the intensities of each ring/shot by the average value around
-        the ring.
-        """
-        
-        logger.warning('Normalizing rings discards information about the '
-                       'relative ring intensities... be sure you want to do this.')
-        
-        I      = self.polar_intensities
-        mask   = self.polar_mask
-         
-        # give each shot unit mean 
-        I_mean = np.sum( I * mask, axis=2 ) / np.sum( mask,axis=1)
-        I /= I_mean[:,:,None]
-        
-        # divide each polar pixel by its mean across the shot set, normalzes out some detector artifacts
-        I_mean = np.sum( I*mask, axis=0 ) / self.num_shots
-        I /= I_mean
-
-        # this results in NaNs and Infs, so we have to kill those
-        I = np.nan_to_num( I )
-        I[ np.isinf(I) ] = 0.0
-        
-        return
+    # this won't function with the new iterable types -- do we need it? --TJL
+    # def _normalize_intensities(self):
+    #     """
+    #     Normalizes the intensities of each ring/shot by the average value around
+    #     the ring.
+    #     """
+    #     
+    #     logger.warning('Normalizing rings discards information about the '
+    #                    'relative ring intensities... be sure you want to do this.')
+    #     
+    #     I      = self.polar_intensities
+    #     mask   = self.polar_mask
+    #      
+    #     # give each shot unit mean 
+    #     I_mean = np.sum( I * mask, axis=2 ) / np.sum( mask,axis=1)
+    #     I /= I_mean[:,:,None]
+    #     
+    #     # divide each polar pixel by its mean across the shot set, normalzes out some detector artifacts
+    #     I_mean = np.sum( I*mask, axis=0 ) / self.num_shots
+    #     I /= I_mean
+    # 
+    #     # this results in NaNs and Infs, so we have to kill those
+    #     I = np.nan_to_num( I )
+    #     I[ np.isinf(I) ] = 0.0
+    #     
+    #     return
 
 
     def depolarize(self, out_of_plane=0.99):
@@ -1894,20 +1940,86 @@ class Rings(object):
             The fraction of the beam polarization out of the synchrotron plane 
             (between 0 and 1).
         """
+        
+        logger.info('Applying polarization correction w/P=%.3f' % out_of_plane)
+        
         qs   = self.q_values
         wave = 2. * np.pi / self.k
-        I    = self.polar_intensities
-        phis = self.phi_values
         
         for i in xrange( len ( qs ) ):
             q         = qs[i]
-            theta     = np.arcsin( q*wave / 4./ np.pi)
-            SinTheta  = np.sin( 2 * theta )
-            correctn  = out_of_plane      * ( 1. - SinTheta**2 * np.cos( phis )**2 )
-            correctn += (1.-out_of_plane) * ( 1. - SinTheta**2 * np.sin( phis )**2 )
-            I[:,i,:]  /= correctn
+            theta     = np.arcsin( q*wave / (4.*np.pi) )
+            SinTheta  = np.sin(2.0 * theta)
+            correctn  = out_of_plane      * ( 1. - SinTheta**2 * np.cos( self.phi_values )**2 )
+            correctn += (1.-out_of_plane) * ( 1. - SinTheta**2 * np.sin( self.phi_values )**2 )
+            
+            for shot_intensities in self.polar_intensities_iter:
+                shot_intensities[i,:] /= correctn
 
-        return 
+        return
+        
+        
+    def smooth_intensities(self, q, beta=10.0, window_size=11, copy=True):
+        """
+        Apply an intensity smoothing function to a Rings object.
+
+        Parameters
+        ----------
+        q : float or array like
+            q position where the smoothing should be applied. If array like, then
+            smoothing will be applied to all listed q values.  
+
+        Optional Parameters
+        -------------------
+        beta : float
+            Parameter controlling the strength of the smoothing -- bigger beta 
+            results in a smoother function.
+
+        window_size : int
+            The size of the Kaiser window to apply, i.e. the number of neighboring
+            points used in the smoothing.
+
+        copy: bool
+            Whether or not to modify current ring or produce a new copied version.
+
+        Returns
+        -------
+        ring or new_ring : Rings object
+            An odin Rings object
+        """
+        
+        raise NotImplementedError('not updated for new rings data storage')
+
+        if type(q) == float:
+            qs = [q]
+
+        if copy == True:
+
+            rp = np.copy ( self.polar_intensities )
+            n_shot = rp.shape[0]
+
+            for q in qs :
+                i_q = self.q_index( q )
+                for i_shot in xrange( n_shot ) :
+                    rp[ i_shot, i_q ] = utils.smooth(rp[ i_shot, i_q ], beta, window_size)
+
+            new_ring = Rings(self.q_values, rp, self.k, self.polar_mask)
+
+            return new_ring
+
+        if copy == False:
+
+            rp = self.polar_intensities 
+            n_shot = rp.shape[0]
+
+            for q in qs:
+                i_q = self.q_index( q )
+                for i_shot in xrange( n_shot ) :
+                    rp[ i_shot, i_q ] = utils.smooth( rp[ i_shot, i_q ], beta, window_size )
+
+            ring = Rings(self.q_values, rp, self.k, self.polar_mask)
+
+            return ring
     
 
     def intensity_profile(self):
@@ -1923,19 +2035,21 @@ class Rings(object):
 
         intensity_profile      = np.zeros( (self.num_q, 2), dtype=np.float )
         intensity_profile[:,0] = self._q_values.copy()
+        
+        intensities_mean = np.mean(self._polar_intensities, axis=0)
 
         # average over shots, phi
         if self.polar_mask != None:
-            i = self.polar_intensities * self.polar_mask.astype(np.float)
+            ip = np.mean(intensities_mean * self.polar_mask.astype(np.float), axis=1)
         else:
-            i = self.polar_intensities
+            ip = np.mean(intensities_mean, axis=1)
 
-        intensity_profile[:,1] = np.mean( np.mean(i, axis=2), axis=0)
+        intensity_profile[:,1] = ip
 
         return intensity_profile
 
 
-    def correlate_intra(self, q1, q2, norm,  num_shots=0, mean_only=False):
+    def correlate_intra(self, q1, q2, num_shots=0, normed=True, mean_only=False):
         """
         Does intRA-shot correlations for many shots.
 
@@ -1946,22 +2060,14 @@ class Rings(object):
         q2 : float
             The |q| value of the second ring
 
-         norm : int
-            Type of normalization ( 0 : mean shot by shot, 
-                                    1 : stdev shot by shot, 
-                                    2 : total mean, 
-                                    3 : total stdev , 
-                                    4 : none )
-
         Optional Parameters
         -------------------
         num_shots : int
             number of shots to compute correlators for
+        normed : bool
+            return the (std-)normalized correlation or un-normalized correlation
         mean_only : bool
             whether or not to return every correlation, or the average
-        mean_norm , bool
-            True -> normalize correlations by the mean
-            False -> normalize correlations by the standard deviation
 
         Returns
         -------
@@ -1976,9 +2082,12 @@ class Rings(object):
 
         if num_shots == 0: # then do correlation for all shots
             num_shots = self.num_shots
-
-        rings1 = self.polar_intensities[:num_shots,q_ind1,:] # shots at ring1
-        rings2 = self.polar_intensities[:num_shots,q_ind2,:] # shots at ring2
+            
+        # generate an output space
+        if mean_only:
+            intra = np.zeros(self.num_phi)
+        else:
+            intra = np.zeros((num_shots, self.num_phi))
 
         # Check if mask exists
         if self.polar_mask != None:
@@ -1988,10 +2097,23 @@ class Rings(object):
             mask1 = None
             mask2 = None     
 
-        return self._correlate_rows(rings1, rings2, norm, mask1, mask2, mean_only )
+        # this is the old way -- if everything is in memory
+        # rings1 = self.polar_intensities[:num_shots,q_ind1,:] # shots at ring1
+        # rings2 = self.polar_intensities[:num_shots,q_ind2,:] # shots at ring2
+        # intra = self._correlate_rows(rings1, rings2, mask1, mask2, normed)
+        
+        for i,pi in enumerate(self.polar_intensities_iter):
+            if mean_only:
+                intra += self._correlate_rows(rings1, rings2, mask1, mask2, 
+                                              normed=normed)
+            else:
+                intra[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2,
+                                                  normed=normed)
+        
+        return intra
     
 
-    def correlate_inter(self, q1, q2, norm, num_pairs=0, mean_only=False, mean_norm=True):
+    def correlate_inter(self, q1, q2, num_pairs=0, normed=True, mean_only=False):
         """
         Does intER-shot correlations for many shots.
 
@@ -2001,28 +2123,23 @@ class Rings(object):
             The |q| value of the first ring
         q2 : float
             The |q| value of the second ring
-
-        norm : int
-            Type of normalization ( 0 : mean shot by shot, 
-                                    1 : stdev shot by shot, 
-                                    2 : total mean, 
-                                    3 : total stdev , 
-                                    4 : none )
+        
         Optional Parameters
         -------------------
         num_pairs : int
             number of pairs of shots to compute correlators for
+        normed : bool
+            return the (std-)normalized correlation or un-normalized correlation
         mean_only : bool
             whether or not to return every correlation, or the average
-        mean_norm , bool
-            True -> normalize correlations by the mean
-            False -> normalize correlations by the standard deviation
 
         Returns
         -------
         inter : ndarray, float
             Either the average correlation, or every correlation as a 2d array
         """
+        
+        raise NotImplementedError('not updated')
 
         logger.debug("Correlating rings at %f / %f" % (q1, q2))
 
@@ -2049,8 +2166,6 @@ class Rings(object):
             mask2 = None     
 
         # this will save some memory, which can quickly bloat...
-        # todo : run in real life and see what works
-        #        , clean this up...
         if mean_only:
             corr = np.zeros(self.num_phi)
             
@@ -2094,34 +2209,23 @@ class Rings(object):
         
         
     @staticmethod
-    def _correlate_rows(x, y, norm, x_mask=None, y_mask=None, mean_only=False ):
+    def _correlate_rows(x, y, x_mask=None, y_mask=None, normed=True):
         """
-        Compute the circular correlation function across the rows of x,y. Note
-        that *all* ODIN correlation functions are defined as:
-        
-                    C(x,y) = < (x - <x>) (y - <y>) > / <x><y>
+        Compute the circular correlation function across the rows of x,y.
         
         Parameters
         ----------
         x,y : np.ndarray, float
             2D arrays of size N x M, where N indexes "experiments" and M indexes
             an observation vector for each experiment.
-        
-        norm : int
-            Type of normalization ( 0 : mean shot by shot, 
-                                    1 : stdev shot by shot, 
-                                    2 : total mean, 
-                                    3 : total stdev , 
-                                    4 : none )
+
         Optional Parameters
         -------------------
         x_mask,y_mask : np.ndarray, bool
             Arrays describing masks over the data. These are 1D arrays of size
             M, with a single value for each data point.
-        
-        mean_only : bool
-            Return the mean of the correlation function. Default is to return
-            each correlation individually.
+        normed : bool
+            return the (std-)normalized correlation or un-normalized correlation
         
         Returns
         -------
@@ -2144,9 +2248,6 @@ class Rings(object):
             
         if not y.shape == x.shape:
             raise ValueError('`x`,`y` must have the same shape')
-        
-        if norm not in (0,1,2,3,4):
-            raise ValueError('Specify a normalization integer. See doc string for details.' ) 
 
         n_row = x.shape[0]
         n_col = x.shape[1]
@@ -2174,59 +2275,13 @@ class Rings(object):
             corr = np.real(fftpack.ifft( ffx * np.conjugate(ffy), axis=1 ))
             assert corr.shape == (n_row, n_col)
             
-            # normalize
-            if norm == 0:
-                corr  = corr / ( float(n_col) * x_bar * y_bar )
-            
-            elif norm == 1:
-                x_stdev = (x).std(1)[:,None]
-                y_stdev = (y).std(1)[:,None]
-                corr = corr / ( float(n_col) * x_stdev * y_stdev )
-
-            elif norm == 2:
-                x_bar = x.mean()
-                y_bar = y.mean()
-                corr /= ( float(n_col) * x_bar * y_bar )
-            
-            elif norm == 3:
-                x_stdev = (x).std()
-                y_stdev = (y).std()
-                corr = corr / ( float(n_col) * x_stdev * y_stdev )
         
         # if using mask
         else:
-            corr = np.zeros( (n_row, n_col) )
-
-            if norm == 0 :
-                for i in range(n_row):
-                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 0)
+            corr = np.zeros((n_row, n_col))
+            for i in xrange(n_row):
+                corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], int(normed))
             
-            elif norm == 1 :
-                for i in range(n_row):
-                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 1)
-            
-            elif norm == 2 :
-                for i in range(n_row):
-                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 2)
-                
-                x_bar = np.ma.masked_array( x, mask = np.tile( np.logical_not( x_mask) , n_row   ).reshape( ( n_row , n_col ))  ).mean()
-                y_bar = np.ma.masked_array( y, mask = np.tile( np.logical_not( y_mask) , n_row   ).reshape( ( n_row , n_col ))  ).mean()
-                corr /= (x_bar * y_bar ) 
-            
-            elif norm == 3 :
-                for i in range(n_row):
-                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 2)
-                
-                x_stdev = np.ma.masked_array( x, mask = np.tile( np.logical_not( x_mask) , n_row   ).reshape( ( n_row , n_col ))  ).std()
-                y_stdev = np.ma.masked_array( y, mask = np.tile( np.logical_not( y_mask) , n_row   ).reshape( ( n_row , n_col ))  ).std()
-                corr /= (x_stdev * y_stdev ) 
-            
-            elif norm ==4 :
-                for i in range(n_row):
-                    corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], 2)
-
-        if mean_only:
-            corr = corr.mean(axis=0) # average all shots
 
         return corr
     
@@ -2301,6 +2356,7 @@ class Rings(object):
 
         # tests indicate this is a good numerical projection
         c = np.polynomial.legendre.legfit(corr[:,0], corr[:,1], order-1)
+        
         return c
 
 
@@ -2533,67 +2589,6 @@ class Rings(object):
         self.polar_intensities = combined_pi
 
         return
-
-
-    def smooth_intensities(self, q, beta=10.0, window_size=11, copy=True):
-        """
-        Apply an intensity smoothing function to a Rings object.
-        
-        Parameters
-        ----------
-        q : float or array like
-            q position where the smoothing should be applied. If array like, then
-            smoothing will be applied to all listed q values.  
-            
-        Optional Parameters
-        -------------------
-        beta : float
-            Parameter controlling the strength of the smoothing -- bigger beta 
-            results in a smoother function.
-        
-        window_size : int
-            The size of the Kaiser window to apply, i.e. the number of neighboring
-            points used in the smoothing.
-        
-        copy: bool
-            Whether or not to modify current ring or produce a new copied version.
-
-        Returns
-        -------
-        ring or new_ring : Rings object
-            An odin Rings object
-        """
-
-        if type(q) == float:
-            qs = [q]
-        
-        if copy == True:
-
-            rp = np.copy ( self.polar_intensities )
-            n_shot = rp.shape[0]
-            
-            for q in qs :
-                i_q = self.q_index( q )
-                for i_shot in xrange( n_shot ) :
-                    rp[ i_shot, i_q ] = utils.smooth(rp[ i_shot, i_q ], beta, window_size)
-
-            new_ring = Rings(self.q_values, rp, self.k, self.polar_mask)
-
-            return new_ring
-        
-        if copy == False:
-
-            rp = self.polar_intensities 
-            n_shot = rp.shape[0]
-
-            for q in qs:
-                i_q = self.q_index( q )
-                for i_shot in xrange( n_shot ) :
-                    rp[ i_shot, i_q ] = utils.smooth( rp[ i_shot, i_q ], beta, window_size )
-
-            ring = Rings(self.q_values, rp, self.k, self.polar_mask)
-
-            return ring
 
 
 def _q_grid_as_xyz(q_values, num_phi, k):

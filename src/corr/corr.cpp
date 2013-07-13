@@ -8,29 +8,30 @@
 #endif
 
 #include "corr.h"
+#include <exception>
 
 using namespace std;
 
 
-Corr::Corr(int N_, float * ar1, float * ar2, float * ar3, short norm_) {
+Corr::Corr(int N_, float * ar1, float * ar2, float * ar3, int norm_) {
     
   N         =  N_;
   ar1_mean  =  mean_no_zero(ar1);
   ar2_mean  =  mean_no_zero(ar2);
-
   norm = norm_;
-  
-  ar1_stdev  = stdev_no_zero(ar1, ar1_mean);
-  ar2_stdev  = stdev_no_zero(ar2, ar2_mean);
 
-  if ( norm==0)
-    norm_factor = ar1_mean * ar2_mean;
-  else if ( norm==1)
+  if ( norm == 0 ) {
+    norm_factor = 1.0;
+  } else if ( norm == 1 ) {
+    ar1_stdev  = stdev_no_zero(ar1, ar1_mean);
+    ar2_stdev  = stdev_no_zero(ar2, ar2_mean);
     norm_factor = ar1_stdev * ar2_stdev;
-  else
-    norm_factor = 1;
+  } else {
+    throw; //std::invalid_argument();
+  }
   
-  correlate ( ar1,ar2,ar3);
+  correlate( ar1, ar2, ar3 );
+  
 }
 
 void Corr::correlate(float * ar1, float * ar2, float * arC) 

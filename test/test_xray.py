@@ -254,7 +254,7 @@ class TestShotset(object):
         # simple smoke test to make sure we can interpolate with a mask
         q_values = np.array([1.0, 2.0])
         num_phi = 360
-        mask = np.random.binomial(1, 0.1, size=self.i.shape)
+        mask = np.random.binomial(1, 0.1, size=(self.d.num_pixels,))
         s = xray.Shotset(self.i, self.d, mask=mask)
         s.interpolate_to_polar(q_values, self.num_phi)
 
@@ -655,6 +655,36 @@ class TestRings(object):
         r = xray.Rings.load('test.ring')
         os.remove('test.ring')
         assert np.all( self.rings.polar_intensities == r.polar_intensities)
+        
+        
+class TestRingsFromDisk(TestRings):
+    """
+    Test the rings class when the handle is a tables array.
+    """
+
+    def setup(self):
+
+        self.q_values = np.array([1.0, 2.0])
+        self.num_phi  = 360
+        self.traj     = trajectory.load(ref_file('ala2.pdb'))
+
+        # generate the tables file on disk (3 shots), then re-open it
+        intensities = np.abs( np.random.randn(3, len(self.q_values), self.num_phi) )
+        io.saveh('tmp_tables.h5', data=intensities)
+
+        self.tables_file = tables.File('tmp_tables.h5')
+        pi = self.tables_file.root.data
+        pm = np.random.binomial(1, 0.9, size=(len(self.q_values), self.num_phi))
+        k = 1.0
+        
+        self.rings = xray.Rings(q_values, pi, k, pm)
+
+        return
+
+    def teardown(self):
+        self.tables_file.close()
+        os.remove('tmp_tables.h5')
+        return
 
 
 class TestMisc(object):
