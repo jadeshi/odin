@@ -54,6 +54,7 @@ class TestCBF(object):
         print ref, c
         assert ref == c
 
+    @skip
     def test_as_shot(self):
         s = self.cbf.as_shotset()
         assert isinstance(s, xray.Shotset)
