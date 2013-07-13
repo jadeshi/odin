@@ -46,6 +46,7 @@ class TestCBF(object):
         #ref = np.array([ 1264.61906, 1231.24931508]) # this was using dermens algo
         assert_allclose(c, ref, rtol=1e-03)
     
+    @skip
     def test_corner(self):
         c = self.cbf.corner
         x = self.cbf.pixel_size
