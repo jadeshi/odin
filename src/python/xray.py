@@ -13,14 +13,13 @@ import cPickle
 import tables
 
 import numpy as np
-from scipy import interpolate, fftpack
+from scipy import interpolate
 from scipy.ndimage import filters, interpolation
 from scipy.special import legendre
 
 from odin import math2
 from odin import scatter
 from odin import utils
-from odin.corr import correlate as gap_correlate
 
 from mdtraj import io
 from mdtraj.utils.arrays import ensure_type
@@ -988,7 +987,13 @@ class Shotset(object):
 
 
         return
+    
         
+    def __del__(self):
+        if hasattr(self, '_hdf'):
+            self._hdf.close()
+        return
+    
         
     @property
     def num_shots(self):
@@ -1034,7 +1039,7 @@ class Shotset(object):
             i_iter = self._intensities
         elif type(self._intensities) in [tables.earray.EArray,
                                    tables.carray.CArray]:
-            i_iter = self._intensities.iterrows()
+            i_iter = self._intensities.iterrows(start=0)
         return i_iter
     
 
@@ -1590,13 +1595,13 @@ class Shotset(object):
             # generate the rings file on disk
             h5_handle = tables.File(rings_filename)
             
-            # but we want `polar_intensities` to be an EArray
-            # the value for expectedrows is just a guess...
+            # we want `polar_intensities` to be an EArray so we can add to it
             atom = tables.Atom.from_dtype(self.polar_intensities.dtype)
-            pi_node = f.handle.createEArray(where='/', name='polar_intensities',
-                                            shape=( 1, len(q_values), num_phi ), 
+            pi_node = h5_handle.handle.createEArray(where='/', 
+                                            name='polar_intensities',
+                                            shape=(0, len(q_values), num_phi), 
                                             atom=atom, filters=io.COMPRESSION,
-                                            expectedrows=100000)
+                                            expectedrows=self.num_shots)
                                             
             # populate the array on disk with the interpolated values
             pi, pm = self.interpolate_to_polar(q_values, num_phi, 
@@ -1611,7 +1616,7 @@ class Shotset(object):
             logger.info('Wrote %s to disk.' % filename)
             h5_handle.close()
             
-            ret_val = 0
+            ret_val = None
             
             
         else:
@@ -1634,21 +1639,26 @@ class Shotset(object):
         if not filename.endswith('.shot'):
             filename += '.shot'
 
-        shotdata = {}
-        for i in range(self.num_shots):
-            shotdata[('shot%d' % i)] = self.intensities[i,:]
-
         # if we don't have a mask, just save a single zero
         if self.mask == None:
             mask = np.array([0])
         else:
             mask = self.mask
 
+        # save an inital file with all metadata
         io.saveh(filename,
                  num_shots = np.array([self.num_shots]),
                  detector  = self.detector._to_serial(),
-                 mask      = mask,
-                 **shotdata)
+                 mask      = mask)
+                          
+        # add the intensity data bit by bit so we dont bloat memory
+        pi_node = f.handle.createEArray(where='/', name='intensities',
+                                        shape=(0, len(q_values), num_phi), 
+                                        atom=atom, filters=io.COMPRESSION,
+                                        expectedrows=self.num_shots)
+                                        
+        for intx in self.intensities_iter:
+            pi_node.append(intx)
 
         logger.info('Wrote %s to disk.' % filename)
 
@@ -1656,7 +1666,7 @@ class Shotset(object):
 
 
     @classmethod
-    def load(cls, filename, to_load=None):
+    def load(cls, filename, force_into_memory=False, to_load=None):
         """
         Loads the a Shotset from disk. Must be `.shot` or `.cxi` format.
 
@@ -1664,46 +1674,69 @@ class Shotset(object):
         ----------
         filename : str
             The path to the shotset file.
-
+            
+        Optional Parameters
+        -------------------
+        force_into_memory : bool
+            If `False`, shotset will attempt to keep as much data on disk as
+            possible, and make passes over that data when necessary. This may
+            make operations slightly less responsive, but lets you work with
+            big data! If `True`, attempt to load everything into memory upfront.
+            
         to_load : ndarray/list, ints
             The indices of the shots in `filename` to load. Can be used to sub-
-            sample the shotset.
+            sample the shotset. Note this is not a valid option if
+            `force_into_memory` is False. If `None`, load all data.
 
         Returns
         -------
         shotset : odin.xray.Shotset
             A shotset object
         """
+        
+        # figure out which shots to load
+        if not to_load == None:
+            try:
+                to_load = np.array(to_load)
+                assert to_load.dtype == np.int
+            except:
+                raise TypeError('`to_load` must be a ndarry/list of ints')
 
 
         # load from a shot file
         if filename.endswith('.shot'):
-            hdf = io.loadh(filename)
-
-            num_shots = int(hdf['num_shots'])
-
-            # figure out which shots to load
-            if to_load == None:
-                to_load = range(num_shots)
-            else:
-                try:
-                    to_load = np.array(to_load)
-                except:
-                    raise TypeError('`to_load` must be a ndarry/list of ints')
-
-            list_of_intensities = []
-            d = Detector._from_serial(hdf['detector'])
-            mask = hdf['mask']
+            
+            self._hdf = tables.File(filename)
+            
+            num_shots = int(hdf.root.num_shots.read())
+            d = Detector._from_serial(hdf.root.detector.read())
+            mask = hdf.root.mask.read()
 
             # check for our flag that there is no mask
             if np.all(mask == np.array([0])):
                 mask = None
 
-            for i in to_load:
-                i = int(i)
-                list_of_intensities.append( hdf[('shot%d' % i)] )
-
-            hdf.close()
+            if to_load == None: # load all
+                if force_into_memory:
+                    intensities_handle = f.root.intensities.read()
+                    self._hdf.close()
+                else:
+                    intensities_handle = f.root.intensities
+                    
+            else: # load subset
+            
+                if to_load.max() > num_shots + 1:
+                    raise ValueError('Asked to load shot %d in a data set of %d'
+                                     ' total shots' % (to_load.max(), num_shots))
+                    
+                if force_into_memory:
+                    intensities_handle = np.zeros((num_shots, d.num_pixels))
+                    for i,s in enumerate(to_load):
+                        intensities_handle[i,:] = f.root.intensities.read(s)
+                    self._hdf.close()
+                else:
+                    raise ValueError('to specify shots to load, '
+                                     '`force_into_memory` must be set to True')
 
 
         elif filename.endswith('.cxi'):
@@ -1713,7 +1746,7 @@ class Shotset(object):
             raise ValueError('Must load a shotset file [.shot, .cxi]')
 
 
-        return cls(list_of_intensities, d, mask)
+        return cls(intensities_handle, d, mask)
 
 
 class Rings(object):
@@ -1781,33 +1814,45 @@ class Rings(object):
         self.k         = k                   # wave number
 
         return
+    
+        
+    def __del__(self):
+        if hasattr(self, '_hdf'):
+            self._hdf.close()
+        return
+    
+        
+    @property
+    def _polar_intensities_type(self):
+        if type(self._polar_intensities) == np.ndarray:
+            type_str = 'array'
+        elif type(polar_intensities) in [tables.earray.EArray,
+                                         tables.carray.CArray]:
+            type_str = 'tables'
+        else:
+            raise RuntimeError('incorrect type in self._intensities')
+        return type_str
 
 
     @property
     def polar_intensities(self):
-        if type(self._polar_intensities) == np.ndarray:
+        if self._polar_intensities_type == 'array':
             pi_data = self._polar_intensities
-        elif type(polar_intensities) in [tables.earray.EArray,
-                                         tables.carray.CArray]:
+        elif self._polar_intensities_type == 'tables':
             try:
                 pi_data = self._polar_intensities.read()
             except MemoryError as e:
                 logger.critical(e)
                 raise MemoryError('insufficient memory to load up all intensity data')
-        else:
-            raise RuntimeError('incorrect type in self._intensities')
         return pi_data
     
         
     @property
     def polar_intensities_iter(self):
-        if type(self._polar_intensities) == np.ndarray:
+        if self._polar_intensities_type == 'array':
             pi_iter = self._polar_intensities
-        elif type(polar_intensities) in [tables.earray.EArray,
-                                         tables.carray.CArray]:
-            pi_iter = self._polar_intensities.iterrows()
-        else:
-            raise RuntimeError('incorrect type in self._intensities')
+        elif self._polar_intensities_type == 'tables':
+            pi_iter = self._polar_intensities.iterrows(start=0)
         return pi_iter
     
 
@@ -1903,6 +1948,7 @@ class Rings(object):
 
 
     # this won't function with the new iterable types -- do we need it? --TJL
+    # also there is ***no test*** for this method
     # def _normalize_intensities(self):
     #     """
     #     Normalizes the intensities of each ring/shot by the average value around
@@ -1995,7 +2041,7 @@ class Rings(object):
 
         if copy == True:
 
-            rp = np.copy ( self.polar_intensities )
+            rp = np.copy( self.polar_intensities )
             n_shot = rp.shape[0]
 
             for q in qs :
@@ -2049,7 +2095,7 @@ class Rings(object):
         return intensity_profile
 
 
-    def correlate_intra(self, q1, q2, num_shots=0, normed=True, mean_only=False):
+    def correlate_intra(self, q1, q2, num_shots=0, normed=False, mean_only=True):
         """
         Does intRA-shot correlations for many shots.
 
@@ -2095,25 +2141,42 @@ class Rings(object):
             mask2 = self.polar_mask[q_ind2,:]
         else:
             mask1 = None
-            mask2 = None     
-
-        # this is the old way -- if everything is in memory
-        # rings1 = self.polar_intensities[:num_shots,q_ind1,:] # shots at ring1
-        # rings2 = self.polar_intensities[:num_shots,q_ind2,:] # shots at ring2
-        # intra = self._correlate_rows(rings1, rings2, mask1, mask2, normed)
+            mask2 = None
+        
+        # if we request normalization, avg variances along the way
+        if normed:
+            var1 = 0.0
+            var2 = 0.0
         
         for i,pi in enumerate(self.polar_intensities_iter):
+            
+            rings1 = pi[q_ind1,:]
+            rings2 = pi[q_ind2,:]
+            
             if mean_only:
-                intra += self._correlate_rows(rings1, rings2, mask1, mask2, 
-                                              normed=normed)
+                intra += self._correlate_rows(rings1, rings2, mask1, mask2)
             else:
-                intra[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2,
-                                                  normed=normed)
+                intra[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2)
+            
+            if normed:
+                var1 += np.var( rings1[mask1] )
+                var2 += np.var( rings2[mask2] )
+                
+            if i == num_shots - 1:
+                break
+                
+        if mean_only:
+            intra /= float(num_shots)
+            
+        if normed:
+            intra /= np.sqrt( var1 * var2 / np.square(float(num_shots)) )
+            assert intra.max() <=  1.0
+            assert intra.min() >= -1.0
         
         return intra
     
 
-    def correlate_inter(self, q1, q2, num_pairs=0, normed=True, mean_only=False):
+    def correlate_inter(self, q1, q2, num_pairs=0, normed=False, mean_only=True):
         """
         Does intER-shot correlations for many shots.
 
@@ -2138,8 +2201,6 @@ class Rings(object):
         inter : ndarray, float
             Either the average correlation, or every correlation as a 2d array
         """
-        
-        raise NotImplementedError('not updated')
 
         logger.debug("Correlating rings at %f / %f" % (q1, q2))
 
@@ -2149,13 +2210,15 @@ class Rings(object):
         max_pairs = self.num_shots * (self.num_shots - 1) / 2
         
         if (num_pairs == 0) or (num_pairs > max_pairs):
-            inter_pairs = []
-            for i in range(self.num_shots):
-                for j in range(i+1, self.num_shots):
-                    inter_pairs.append([i,j])
-            inter_pairs = np.array(inter_pairs)
+            inter_pairs = utils.all_pairs(self.num_shots)
         else:
             inter_pairs = utils.random_pairs(self.num_shots, num_pairs)
+            
+        # generate an output space
+        if mean_only:
+            inter = np.zeros(self.num_phi)
+        else:
+            inter = np.zeros((num_shots, self.num_phi))
 
         # Check if mask exists
         if self.polar_mask != None:
@@ -2165,53 +2228,51 @@ class Rings(object):
             mask1 = None
             mask2 = None     
 
-        # this will save some memory, which can quickly bloat...
+        # if we request normalization, avg variances along the way
+        if normed:
+            var1 = 0.0
+            var2 = 0.0
+        
+        for i,j in inter_pairs:
+            
+            if self._polar_intensities_type == 'array':
+                rings1 = self._polar_intensities[i,q_ind1,:]
+                rings2 = self._polar_intensities[j,q_ind2,:]
+                
+            # todo : this could be very slow if we have to skip all over the
+            #        place on disk -- do some tests, see if it's a problem,
+            #        act accordingly
+            elif self._polar_intensities_type == 'tables':
+                rings1 = self._polar_intensities.read(i)[q_ind1,:]
+                rings2 = self._polar_intensities.read(j)[q_ind2,:]
+            
+            if mean_only:
+                inter += self._correlate_rows(rings1, rings2, mask1, mask2)
+            else:
+                inter[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2)
+            
+            if normed:
+                var1 += np.var( rings1[mask1] )
+                var2 += np.var( rings2[mask2] )
+            
+                
         if mean_only:
-            corr = np.zeros(self.num_phi)
+            inter /= float(num_pairs)
             
-            if norm in (0,1,4):
-                
-                for i in xrange( inter_pairs.shape[0] ):
-                    x = self.polar_intensities[inter_pairs[i,0],q_ind1,:] # shots at ring1
-                    y = self.polar_intensities[inter_pairs[i,1],q_ind2,:] # shots at ring2
-                    corr += self._correlate_rows(x, y, norm , mask1, mask2, mean_only=True)
-                corr /= float(inter_pairs.shape[0])
-                
-            elif norm == 2:
-                x_bar = np.zeros( self.num_phi )
-                y_bar = np.zeros( self.num_phi)
-                for i in xrange( inter_pairs.shape[0] ):
-                    x = self.polar_intensities[inter_pairs[i,0],q_ind1,:] # shots at ring1
-                    y = self.polar_intensities[inter_pairs[i,1],q_ind2,:] # shots at ring2
-                    x_bar += np.ma.masked_array( x, mask= mask1).mean() # might be able to speed up by avoiding masked arrays, but this prevents introduction of NaNs etc 
-                    y_bar += np.ma.masked_array( y, mask= mask2).mean()
-                    corr += self._correlate_rows(x, y, 4 , mask1, mask2, mean_only=True)
-                corr /= (x_bar*y_bar )
-            
-            elif norm==3: 
-                x_stdev = np.zeros( self.num_phi )
-                y_stdev = np.zeros( self.num_phi)
-                for i in xrange( inter_pairs.shape[0] ):
-                    x = self.polar_intensities[inter_pairs[i,0],q_ind1,:] # shots at ring1
-                    y = self.polar_intensities[inter_pairs[i,1],q_ind2,:] # shots at ring2
-                    x_stdev += np.ma.masked_array( x, mask= mask1).std() # might be able to speed up by avoiding masked arrays, but this prevents introduction of NaNs etc 
-                    y_stdev += np.ma.masked_array( y, mask= mask2).std()
-                    corr += self._correlate_rows(x, y, 4 , mask1, mask2, mean_only=True)
-                corr /= (x_stdev * y_stdev )
+        if normed:
+            inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
+            assert inter.max() <=  1.0
+            assert inter.min() >= -1.0
 
-            
-        else:
-            x = self.polar_intensities[inter_pairs[:,0],q_ind1,:] # shots at ring1
-            y = self.polar_intensities[inter_pairs[:,1],q_ind2,:] # shots at ring2
-            corr = self._correlate_rows(x, y, norm, mask1, mask2)
-
-        return corr
+        return inter
         
         
     @staticmethod
-    def _correlate_rows(x, y, x_mask=None, y_mask=None, normed=True):
+    def _correlate_rows(x, y, x_mask=None, y_mask=None):
         """
-        Compute the circular correlation function across the rows of x,y.
+        Compute the (unnormalized) circular correlation function across the rows
+        of x,y. The correlation functions are computed using the fluctuations
+        around each sample (shot-by-shot mean subtraction).
         
         Parameters
         ----------
@@ -2224,8 +2285,6 @@ class Rings(object):
         x_mask,y_mask : np.ndarray, bool
             Arrays describing masks over the data. These are 1D arrays of size
             M, with a single value for each data point.
-        normed : bool
-            return the (std-)normalized correlation or un-normalized correlation
         
         Returns
         -------
@@ -2238,13 +2297,16 @@ class Rings(object):
         # do a shitload of typechecking -.-
         if len(x.shape) == 1:
             x = x[None,:]
+            flatten = True
         elif len(x.shape) > 2:
-            raise ValueError('`x` must be two dimensional array')
+            raise ValueError('`x` must be one or two dimensional array')
+        else:
+            flatten = False
             
         if len(y.shape) == 1:
             y = y[None,:]
         elif len(y.shape) > 2:
-            raise ValueError('`y` must be two dimensional array')
+            raise ValueError('`y` must be one or two dimensional array')
             
         if not y.shape == x.shape:
             raise ValueError('`x`,`y` must have the same shape')
@@ -2260,29 +2322,27 @@ class Rings(object):
             assert len(y_mask) == n_col
             y_mask = y_mask.astype(np.bool)
             
-            
-        # --- actually compute some correlators
-        # if no mask
+        # actually compute some correlators
         if ((x_mask == None) and (y_mask == None)):
-            
-            # use these for mean subtracting, not normalizing
-            x_bar = x.mean(axis=1)[:,None]
-            y_bar = y.mean(axis=1)[:,None]
-            
-            # use d-FFT + convolution thm
-            ffx = fftpack.fft(x - x_bar, axis=1)
-            ffy = fftpack.fft(y - y_bar, axis=1)
-            corr = np.real(fftpack.ifft( ffx * np.conjugate(ffy), axis=1 ))
-            assert corr.shape == (n_row, n_col)
-            
-        
-        # if using mask
+            xm = 1.0
+            ym = 1.0
         else:
-            corr = np.zeros((n_row, n_col))
-            for i in xrange(n_row):
-                corr[i,:] = gap_correlate(x[i,:] * x_mask[:], y[i,:] * y_mask[:], int(normed))
+            xm = x_mask[None,:]
+            ym = y_mask[None,:]
             
-
+        # use these for mean subtracting, not normalizing
+        x_bar = x.mean(axis=1)[:,None]
+        y_bar = y.mean(axis=1)[:,None]
+        
+        # use d-FFT + convolution thm
+        ffx  = np.fft.rfft((x - x_bar) * xm, n=n_col, axis=1)
+        ffy  = np.fft.rfft((y - y_bar) * ym, n=n_col, axis=1)
+        corr = np.fft.irfft( ffx * np.conjugate(ffy), n=n_col, axis=1)
+        assert corr.shape == (n_row, n_col)
+        
+        if flatten:
+            corr = corr.flatten()
+        
         return corr
     
 
@@ -2515,20 +2575,22 @@ class Rings(object):
         else:
             pm = self.polar_mask
             
-        f = tables.File(filename)
+        f = tables.File(filename, 'a')
 
         # these are going to be CArrays
-        io.saveh( filename,
+        io.saveh( f,
                   q_values = self._q_values,
                   k = np.array([self.k]),
                   polar_mask = pm )
                   
         # but we want `polar_intensities` to be an EArray
         atom = tables.Atom.from_dtype(self.polar_intensities.dtype)
-        pi_node = f.handle.createCArray(where='/', name='polar_intensities',
-                                        shape=self.polar_intensities.shape, 
+        pi_node = f.handle.createEArray(where='/', name='polar_intensities',
+                                        shape=(0, self.num_q, self.num_phi), 
                                         atom=atom, filters=io.COMPRESSION)
-        pi_node[:] = self.polar_intensities
+                                        
+        for intx in self.intensities_iter:
+            pi_node.append(intx)
         
         f.close()
 
@@ -2538,7 +2600,7 @@ class Rings(object):
     
 
     @classmethod
-    def load(cls, filename):
+    def load(cls, filename, force_into_memory=False):
         """
         Load a Rings object from disk.
 
@@ -2548,22 +2610,26 @@ class Rings(object):
             The name of the file to write to disk. Must end in '.ring'.
         """
 
-        if filename.endswith('.ring'):
-            hdf = io.loadh(filename)
-        else:
+        if not filename.endswith('.ring'):
             raise ValueError('Must load a rings file (.ring)')
 
+        self._hdf = tables.File(filename)
+        
+        q_values = self._hdf.root.q_values.read()
+        pm = self._hdf.root.polar_mask.read()
+        k = float(self._hdf.root.k.read()[0])
+
         # deal with our codified polar mask
-        if np.all(hdf['polar_mask'] == np.array([0])):
+        if pm == np.array([0]):
             pm = None
+            
+        if force_into_memory:
+            pi_handle = self._hdf.root.polar_intensities.read()
+            self._hdf.close()
         else:
-            pm = hdf['polar_mask']
-
-        rings_obj = cls(hdf['q_values'], hdf['polar_intensities'],
-                        float(hdf['k'][0]), polar_mask=pm)
-        hdf.close()
-
-        return rings_obj
+            pi_handle = self._hdf.root.polar_intensities
+        
+        return cls(q_values, pi_handle, k, polar_mask=pm)
         
         
     def append(self, other_rings):
@@ -2579,6 +2645,8 @@ class Rings(object):
         -------
         None : void
         """
+        
+        raise NotImplementedError('needs update')
         
         if not np.all(other_rings.q_values == self.q_values):
             raise ValueError('Two rings must have exactly the same q_values')
