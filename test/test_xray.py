@@ -395,7 +395,7 @@ class TestShotset(object):
         num_molecules = 1
         
         xyzlist = t.xyz[0,:,:] * 10.0 # convert nm -> ang. / first snapshot
-        atomic_numbers = np.array([ a.element.atomic_number for a in t.topology.atoms() ])
+        atomic_numbers = np.array([ a.element.atomic_number for a in t.topology.atoms ])
         
         # generate a set of random numbers that we can use to make sure the
         # two simulations have the same molecular orientation (and therefore)
