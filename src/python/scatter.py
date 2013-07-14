@@ -123,7 +123,7 @@ def simulate_shot(traj, num_molecules, detector, traj_weights=None,
         
     
     # extract the atomic numbers
-    atomic_numbers = np.array([ a.element.atomic_number for a in traj.topology.atoms() ])
+    atomic_numbers = np.array([ a.element.atomic_number for a in traj.topology.atoms ])
         
     
     # iterate over snapshots in the trajectory
