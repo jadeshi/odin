@@ -9,6 +9,7 @@ logging.basicConfig()
 logger = logging.getLogger(__name__)
 logger.setLevel('DEBUG')
 
+import os
 import cPickle
 import tables
 
@@ -859,6 +860,9 @@ class Detector(Beam):
 
         if not filename.endswith('.dtc'):
             filename += '.dtc'
+            
+        if os.path.exists(filename):
+            raise IOError('File: %d already exists! Aborting...' % filename)
 
         io.saveh(filename, detector=self._to_serial())
         logger.info('Wrote %s to disk.' % filename)
@@ -991,7 +995,8 @@ class Shotset(object):
         
     def __del__(self):
         if hasattr(self, '_hdf'):
-            self._hdf.close()
+            if self._hdf:
+                self._hdf.close()
         return
     
         
@@ -1038,8 +1043,9 @@ class Shotset(object):
         if type(self._intensities) == np.ndarray:
             i_iter = self._intensities
         elif type(self._intensities) in [tables.earray.EArray,
-                                   tables.carray.CArray]:
-            i_iter = self._intensities.iterrows(start=0)
+                                         tables.carray.CArray]:
+            i_iter = self._intensities.iterrows()
+            i_iter.nrow = -1 # reset the iterator to the start
         return i_iter
     
 
@@ -1229,7 +1235,7 @@ class Shotset(object):
                                'xyz_type {explicit, implicit}')
 
         if type(polar_intensities_output) == list:
-            polar_intensities_output = np.array(polar_intensities_output)
+            polar_intensities_output = np.vstack(polar_intensities_output)
 
         # polar_intensities_output "is" interpolated_intensities
         return polar_intensities_output, polar_mask
@@ -1365,7 +1371,7 @@ class Shotset(object):
             
                 int_start += n_int
             
-            polar_intensities_output.append( shot_pi.reshape(num_q, num_phi) )
+            polar_intensities_output.append( shot_pi.reshape(1, num_q, num_phi) )
             
             
         return polar_mask
@@ -1413,7 +1419,7 @@ class Shotset(object):
             polar_mask[np.logical_not(nans)] = np.bool(True)
 
             # append this shot to the output
-            polar_intensities_output.append( z_interp.reshape(num_q, num_phi) )
+            polar_intensities_output.append( z_interp.reshape(1, num_q, num_phi) )
 
         polar_mask = polar_mask.reshape(num_q, num_phi)
 
@@ -1575,6 +1581,11 @@ class Shotset(object):
 
         logger.info('Converting shotset to polar space (Rings)')
         
+        try:
+            q_values = np.array(q_values)
+            assert len(q_values.shape) == 1
+        except:
+            raise TypeError('`q_values` must be a one-d array or list of floats')
                               
         # the easy way : keep everything in memory
         if not rings_filename:
@@ -1592,16 +1603,19 @@ class Shotset(object):
             if not rings_filename.endswith('.ring'):
                 rings_filename += '.str'
                 
+            if os.path.exists(rings_filename):
+                raise IOError('File with name %s already exists! Aborting...' \
+                              % rings_filename)
+                
             # generate the rings file on disk
-            h5_handle = tables.File(rings_filename)
+            h5_handle = tables.File(rings_filename, 'w')
             
             # we want `polar_intensities` to be an EArray so we can add to it
-            atom = tables.Atom.from_dtype(self.polar_intensities.dtype)
-            pi_node = h5_handle.handle.createEArray(where='/', 
-                                            name='polar_intensities',
-                                            shape=(0, len(q_values), num_phi), 
-                                            atom=atom, filters=io.COMPRESSION,
-                                            expectedrows=self.num_shots)
+            a = tables.Atom.from_dtype(np.dtype(np.float64))
+            pi_node = h5_handle.createEArray(where='/', name='polar_intensities',
+                                             shape=(0, len(q_values), num_phi), 
+                                             atom=a, filters=io.COMPRESSION,
+                                             expectedrows=self.num_shots)
                                             
             # populate the array on disk with the interpolated values
             pi, pm = self.interpolate_to_polar(q_values, num_phi, 
@@ -1613,7 +1627,7 @@ class Shotset(object):
                       k = np.array([self.detector.k]),
                       polar_mask = pm )
 
-            logger.info('Wrote %s to disk.' % filename)
+            logger.info('Wrote %s to disk.' % rings_filename)
             h5_handle.close()
             
             ret_val = None
@@ -1638,6 +1652,9 @@ class Shotset(object):
 
         if not filename.endswith('.shot'):
             filename += '.shot'
+            
+        if os.path.exists(filename):
+            raise IOError('File: %d already exists! Aborting...' % filename)
 
         # if we don't have a mask, just save a single zero
         if self.mask == None:
@@ -1646,19 +1663,22 @@ class Shotset(object):
             mask = self.mask
 
         # save an inital file with all metadata
-        io.saveh(filename,
+        hdf = tables.File(filename, 'w')
+        
+        io.saveh(hdf,
                  num_shots = np.array([self.num_shots]),
                  detector  = self.detector._to_serial(),
                  mask      = mask)
                           
         # add the intensity data bit by bit so we dont bloat memory
-        pi_node = f.handle.createEArray(where='/', name='intensities',
-                                        shape=(0, len(q_values), num_phi), 
-                                        atom=atom, filters=io.COMPRESSION,
-                                        expectedrows=self.num_shots)
+        a = tables.Atom.from_dtype(np.dtype(np.float64))
+        pi_node = hdf.createEArray(where='/', name='intensities',
+                                   shape=(0, self.num_pixels), 
+                                   atom=a, filters=io.COMPRESSION,
+                                   expectedrows=self.num_shots)
                                         
         for intx in self.intensities_iter:
-            pi_node.append(intx)
+            pi_node.append(intx[None,:])
 
         logger.info('Wrote %s to disk.' % filename)
 
@@ -1706,7 +1726,7 @@ class Shotset(object):
         # load from a shot file
         if filename.endswith('.shot'):
             
-            self._hdf = tables.File(filename)
+            hdf = tables.File(filename, 'r+')
             
             num_shots = int(hdf.root.num_shots.read())
             d = Detector._from_serial(hdf.root.detector.read())
@@ -1718,10 +1738,11 @@ class Shotset(object):
 
             if to_load == None: # load all
                 if force_into_memory:
-                    intensities_handle = f.root.intensities.read()
-                    self._hdf.close()
+                    intensities_handle = hdf.root.intensities.read()
+                    hdf.close()
+                    hdf = None
                 else:
-                    intensities_handle = f.root.intensities
+                    intensities_handle = hdf.root.intensities
                     
             else: # load subset
             
@@ -1729,14 +1750,18 @@ class Shotset(object):
                     raise ValueError('Asked to load shot %d in a data set of %d'
                                      ' total shots' % (to_load.max(), num_shots))
                     
-                if force_into_memory:
-                    intensities_handle = np.zeros((num_shots, d.num_pixels))
-                    for i,s in enumerate(to_load):
-                        intensities_handle[i,:] = f.root.intensities.read(s)
-                    self._hdf.close()
-                else:
-                    raise ValueError('to specify shots to load, '
-                                     '`force_into_memory` must be set to True')
+                if not force_into_memory:
+                    logger.warning('Shotset.load() recieved `to_load` flag while'
+                                   ' `force_into_memory` is False -- must load'
+                                   ' all data into memory to select subset. '
+                                   'Loading data into memory...')
+                    
+                intensities_handle = np.zeros((len(to_load), d.num_pixels))
+                logger.info('loading %d of %d shots...' % (len(to_load), num_shots))
+                
+                for i,s in enumerate(to_load):
+                    intensities_handle[i,:] = hdf.root.intensities.read(s)
+                hdf.close()
 
 
         elif filename.endswith('.cxi'):
@@ -1746,7 +1771,10 @@ class Shotset(object):
             raise ValueError('Must load a shotset file [.shot, .cxi]')
 
 
-        return cls(intensities_handle, d, mask)
+        ss = cls(intensities_handle, d, mask)
+        ss._hdf = hdf
+
+        return ss
 
 
 class Rings(object):
@@ -1818,7 +1846,8 @@ class Rings(object):
         
     def __del__(self):
         if hasattr(self, '_hdf'):
-            self._hdf.close()
+            if self._hdf:
+                self._hdf.close()
         return
     
         
@@ -1826,8 +1855,8 @@ class Rings(object):
     def _polar_intensities_type(self):
         if type(self._polar_intensities) == np.ndarray:
             type_str = 'array'
-        elif type(polar_intensities) in [tables.earray.EArray,
-                                         tables.carray.CArray]:
+        elif type(self._polar_intensities) in [tables.earray.EArray,
+                                               tables.carray.CArray]:
             type_str = 'tables'
         else:
             raise RuntimeError('incorrect type in self._intensities')
@@ -1853,6 +1882,7 @@ class Rings(object):
             pi_iter = self._polar_intensities
         elif self._polar_intensities_type == 'tables':
             pi_iter = self._polar_intensities.iterrows(start=0)
+            pi_iter.nrow = -1 # reset the iterator to the start
         return pi_iter
     
 
@@ -2211,6 +2241,7 @@ class Rings(object):
         
         if (num_pairs == 0) or (num_pairs > max_pairs):
             inter_pairs = utils.all_pairs(self.num_shots)
+            num_pairs = max_pairs
         else:
             inter_pairs = utils.random_pairs(self.num_shots, num_pairs)
             
@@ -2568,6 +2599,9 @@ class Rings(object):
 
         if not filename.endswith('.ring'):
             filename += '.ring'
+            
+        if os.path.exists(filename):
+            raise IOError('File: %d already exists! Aborting...' % filename)
 
         # if self.polar_mask == None, then save a single 0
         if self.polar_mask == None:
@@ -2575,7 +2609,7 @@ class Rings(object):
         else:
             pm = self.polar_mask
             
-        f = tables.File(filename, 'a')
+        f = tables.File(filename, 'w')
 
         # these are going to be CArrays
         io.saveh( f,
@@ -2584,13 +2618,13 @@ class Rings(object):
                   polar_mask = pm )
                   
         # but we want `polar_intensities` to be an EArray
-        atom = tables.Atom.from_dtype(self.polar_intensities.dtype)
-        pi_node = f.handle.createEArray(where='/', name='polar_intensities',
-                                        shape=(0, self.num_q, self.num_phi), 
-                                        atom=atom, filters=io.COMPRESSION)
+        a = tables.Atom.from_dtype(np.dtype(np.float64))
+        pi_node = f.createEArray(where='/', name='polar_intensities',
+                                 shape=(0, self.num_q, self.num_phi), 
+                                 atom=a, filters=io.COMPRESSION)
                                         
-        for intx in self.intensities_iter:
-            pi_node.append(intx)
+        for intx in self.polar_intensities_iter:
+            pi_node.append(intx[None,:,:])
         
         f.close()
 
@@ -2608,28 +2642,43 @@ class Rings(object):
         ----------
         filename : str
             The name of the file to write to disk. Must end in '.ring'.
+        
+        Optional Parameters
+        -------------------
+        force_into_memory : bool
+            Whether or not to load the entire dataset into memory (True) or
+            use lazy loading (False, default).
+                        
+        Returns
+        -------
+        rings : xray.Rings
+            The loaded rings object.
         """
 
         if not filename.endswith('.ring'):
             raise ValueError('Must load a rings file (.ring)')
 
-        self._hdf = tables.File(filename)
+        hdf = tables.File(filename, 'r+')
         
-        q_values = self._hdf.root.q_values.read()
-        pm = self._hdf.root.polar_mask.read()
-        k = float(self._hdf.root.k.read()[0])
+        q_values = hdf.root.q_values.read()
+        pm = hdf.root.polar_mask.read()
+        k = float(hdf.root.k.read()[0])
 
         # deal with our codified polar mask
-        if pm == np.array([0]):
+        if np.all(pm == np.array([0])):
             pm = None
             
         if force_into_memory:
-            pi_handle = self._hdf.root.polar_intensities.read()
-            self._hdf.close()
+            pi_handle = hdf.root.polar_intensities.read()
+            hdf.close()
+            hdf = None
         else:
-            pi_handle = self._hdf.root.polar_intensities
+            pi_handle = hdf.root.polar_intensities
         
-        return cls(q_values, pi_handle, k, polar_mask=pm)
+        rings = cls(q_values, pi_handle, k, polar_mask=pm)
+        rings._hdf = hdf
+        
+        return rings
         
         
     def append(self, other_rings):

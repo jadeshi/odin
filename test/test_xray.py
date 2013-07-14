@@ -272,6 +272,7 @@ class TestShotset(object):
         n = 0
         for i in self.shot.intensities_iter:
             n += 1
+        print "n/num_shots", n, self.num_shots
         assert n == self.num_shots
             
     def test_len(self):
@@ -346,40 +347,40 @@ class TestShotset(object):
     def test_multi_panel_interp(self):
         # regression test ensuring detectors w/multiple basisgrid panels
         # are handled correctly
-        
+
         t = structure.load_coor(ref_file('gold1k.coor'))
         q_values = np.array([2.66])
         multi_d = xray.Detector.load(ref_file('lcls_test.dtc'))
         num_phi = 1080
         num_molecules = 1
-        
+
         xyzlist = t.xyz[0,:,:] * 10.0 # convert nm -> ang. / first snapshot
-        atomic_numbers = np.array([ a.element.atomic_number for a in t.topology.atoms() ])
-        
+        atomic_numbers = np.array([ a.element.atomic_number for a in t.topology.atoms ])
+
         # generate a set of random numbers that we can use to make sure the
         # two simulations have the same molecular orientation (and therefore)
         # output
         rfloats = np.random.rand(num_molecules, 3)
-        
+
         # --- first, scatter onto a perfect ring
-        q_grid = xray._q_grid_as_xyz(q_values, num_phi, multi_d.k) 
-        
-        ring_i = _cpuscatter.simulate(num_molecules, q_grid, xyzlist, 
+        q_grid = xray._q_grid_as_xyz(q_values, num_phi, multi_d.k)
+
+        ring_i = _cpuscatter.simulate(num_molecules, q_grid, xyzlist,
                                       atomic_numbers, rfloats=rfloats)
         perf = xray.Rings(q_values, ring_i[None,None,:], multi_d.k)
-                                    
+
         # --- next, to the full detector
         q_grid2 = multi_d.reciprocal
-        real_i = _cpuscatter.simulate(num_molecules, q_grid2, xyzlist, 
+        real_i = _cpuscatter.simulate(num_molecules, q_grid2, xyzlist,
                                       atomic_numbers, rfloats=rfloats)
 
         # interpolate
         ss = xray.Shotset(real_i, multi_d)
         real = ss.to_rings(q_values, num_phi)
-        
+
         # count the number of points that differ significantly between the two
         diff = ( np.abs((perf.polar_intensities[0,0,:] - real.polar_intensities[0,0,:]) \
-                 / real.polar_intensities[0,0,:]) > 1e-3)
+                 / (real.polar_intensities[0,0,:] + 1e-300) ) > 1e-3)
         print np.sum(diff)
         assert np.sum(diff) < 300
 
@@ -460,19 +461,11 @@ class TestShotset(object):
         # this test uses the Rings `rings_filename` flag
         
         t = structure.load_coor(ref_file('gold1k.coor'))
-        q_values = np.array([2.66])
-        multi_d = xray.Detector.load(ref_file('lcls_test.dtc'))
-        num_phi = 1080
-        num_molecules = 1
+        shot = xray.Shotset.simulate(t, self.d, 1, 1)
+        q_values = [1.0, 2.0]
+        rings_ref = shot.to_rings(q_values)
         
-        xyzlist = t.xyz[0,:,:] * 10.0 # convert nm -> ang. / first snapshot
-        atomic_numbers = np.array([ a.element.atomic_number for a in t.topology.atoms ])
-        
-        # generate a set of random numbers that we can use to make sure the
-        # two simulations have the same molecular orientation (and therefore)
-        # output
-        rfloats = np.random.rand(num_molecules, 3)
-        
+        if os.path.exists('tmp.ring'): os.remove('tmp.ring')
         shot.to_rings(q_values, rings_filename='tmp.ring')
         rings = xray.Rings.load('tmp.ring')
         
@@ -481,30 +474,29 @@ class TestShotset(object):
                                   
         if os.path.exists('tmp.ring'): os.remove('tmp.ring')
 
-
     def test_io(self):
         if os.path.exists('test.shot'): os.remove('test.shot')
         self.shot.save('test.shot')
         s = xray.Shotset.load('test.shot')
+        assert_allclose( s.intensity_profile(),
+                         self.shot.intensity_profile(), rtol=1e-3 )
         if os.path.exists('test.shot'): os.remove('test.shot')
-        assert_array_almost_equal(s.intensity_profile(),
-                                  self.shot.intensity_profile() )
                                   
     def test_io_memforce(self):
         if os.path.exists('test.shot'): os.remove('test.shot')
         self.shot.save('test.shot')
         s = xray.Shotset.load('test.shot', force_into_memory=True)
+        assert_allclose(s.intensity_profile(),
+                        self.shot.intensity_profile(), rtol=1e-2 )
         if os.path.exists('test.shot'): os.remove('test.shot')
-        assert_array_almost_equal(s.intensity_profile(),
-                                  self.shot.intensity_profile() )
                                   
     def test_io_subset(self):
         if os.path.exists('test.shot'): os.remove('test.shot')
         self.shot.save('test.shot')
         s = xray.Shotset.load('test.shot', to_load=[0])
-        if os.path.exists('test.shot'): os.remove('test.shot')
+        print s.num_shots
         assert s.num_shots == 1
-        
+        if os.path.exists('test.shot'): os.remove('test.shot')
         
     def test_load_from_cxi(self):
         raise NotImplementedError()
@@ -537,6 +529,9 @@ class TestShotsetFromDisk(TestShotset):
         
         return
         
+    def test_average_intensity(self):
+        assert_array_almost_equal(self.i.read().mean(0), self.shot.average_intensity)
+        
     def teardown(self):
         self.tables_file.close()
         os.remove('tmp_tables.h5')
@@ -560,7 +555,7 @@ class TestRings(object):
         
         
     def test_polar_intensities_type(self):
-        assert self._polar_intensities_type == 'array'
+        assert self.rings._polar_intensities_type == 'array'
         
     def test_polar_intensities(self):
         pi = self.rings.polar_intensities
@@ -569,9 +564,10 @@ class TestRings(object):
         
     def test_polar_intensities_iter(self):
         n = 0
-        for x in self.shot.polar_intensities_iter:
+        for x in self.rings.polar_intensities_iter:
             n += 1
-        assert n == self.num_shots - 1
+        print "n / num_shots", n, self.num_shots
+        assert n == self.num_shots
         
     def test_num_shots(self):
         assert self.rings.num_shots == self.num_shots
@@ -584,7 +580,7 @@ class TestRings(object):
         assert self.rings.num_phi == self.num_phi
         
     def test_num_datapoints(self):
-        assert self.num_datapoints == self.num_phi * len(self.q_values)
+        assert self.rings.num_datapoints == self.num_phi * len(self.q_values)
 
     def test_cospsi(self):
         raise NotImplementedError('what do we want here?')
@@ -741,11 +737,12 @@ class TestRings(object):
         pred = np.polynomial.legendre.legval(kam_ring[:,0], cl)
         assert_allclose(pred, kam_ring[:,1], rtol=0.1, atol=0.1)
 
-    def test_io(self):        
+    def test_io(self):
+        if os.path.exists('test.ring'): os.remove('test.ring')
         self.rings.save('test.ring')
         r = xray.Rings.load('test.ring')
-        os.remove('test.ring')
         assert np.all( self.rings.polar_intensities == r.polar_intensities)
+        if os.path.exists('test.ring'): os.remove('test.ring')
         
     def test_io_forcemem(self):
         raise NotImplementedError('need test')
