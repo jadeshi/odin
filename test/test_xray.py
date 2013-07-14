@@ -460,9 +460,18 @@ class TestShotset(object):
         # this test uses the Rings `rings_filename` flag
         
         t = structure.load_coor(ref_file('gold1k.coor'))
-        shot = xray.Shotset.simulate(t, self.d, 1, 1)
-        q_values = [1.0, 2.0]
-        rings_ref = shot.to_rings(q_values)
+        q_values = np.array([2.66])
+        multi_d = xray.Detector.load(ref_file('lcls_test.dtc'))
+        num_phi = 1080
+        num_molecules = 1
+        
+        xyzlist = t.xyz[0,:,:] * 10.0 # convert nm -> ang. / first snapshot
+        atomic_numbers = np.array([ a.element.atomic_number for a in t.topology.atoms ])
+        
+        # generate a set of random numbers that we can use to make sure the
+        # two simulations have the same molecular orientation (and therefore)
+        # output
+        rfloats = np.random.rand(num_molecules, 3)
         
         shot.to_rings(q_values, rings_filename='tmp.ring')
         rings = xray.Rings.load('tmp.ring')
