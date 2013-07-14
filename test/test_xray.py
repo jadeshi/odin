@@ -580,6 +580,7 @@ class TestRings(object):
         rings2 = xray.Rings.simulate(self.traj, 1, self.q_values, self.num_phi, 3) # 1 molec, 3 shots
         inter = rings2.correlate_inter(q, q, 0, mean_only=True, num_pairs=1)
         
+    @skip # skip until convention is set
     def test_convert_to_kam(self):
         intra = self.rings.correlate_intra(1.0, 1.0,0, mean_only=True)
         kam_corr = self.rings._convert_to_kam(1.0, 1.0, intra)

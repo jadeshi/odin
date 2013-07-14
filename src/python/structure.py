@@ -460,7 +460,7 @@ def _traj_from_xyza(xyz, atomic_numbers, units='nm'):
         element_symb = periodic_table[atomic_numbers[i]][1] # should give symbol
         element = Element.getBySymbol(element_symb)
         name = '%s' % element_symb
-        top.addAtom(name, element, residue)
+        top.add_atom(name, element, residue)
     
     structure = trajectory.Trajectory(xyz=xyz, topology=top)
 
