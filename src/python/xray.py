@@ -862,7 +862,7 @@ class Detector(Beam):
             filename += '.dtc'
             
         if os.path.exists(filename):
-            raise IOError('File: %d already exists! Aborting...' % filename)
+            raise IOError('File: %s already exists! Aborting...' % filename)
 
         io.saveh(filename, detector=self._to_serial())
         logger.info('Wrote %s to disk.' % filename)
@@ -1654,7 +1654,7 @@ class Shotset(object):
             filename += '.shot'
             
         if os.path.exists(filename):
-            raise IOError('File: %d already exists! Aborting...' % filename)
+            raise IOError('File: %s already exists! Aborting...' % filename)
 
         # if we don't have a mask, just save a single zero
         if self.mask == None:
@@ -2006,31 +2006,36 @@ class Rings(object):
     #     return
 
 
-    def depolarize(self, out_of_plane=0.99):
+    def depolarize(self, xaxis_polarization):
         """
         Applies a polarization correction to the rings.
         
         Parameters
         ----------
-        out_of_plane : float
-            The fraction of the beam polarization out of the synchrotron plane 
-            (between 0 and 1).
+        xaxis_polarization : float
+            The fraction of the beam polarization in the horizontal/x plane.
+            For synchrotron sources, this is the ''in-plane'' polarization.
+            
+        Citations
+        ---------
+        ..[1] Hura et. al. J. Chem. Phys. 113, 9140 (2000); doi10.1063/1.1319614
+        ..[2] Jackson. Classical Electrostatics.
         """
         
-        logger.info('Applying polarization correction w/P=%.3f' % out_of_plane)
-        
-        qs   = self.q_values
-        wave = 2. * np.pi / self.k
-        
-        for i in xrange( len ( qs ) ):
-            q         = qs[i]
-            theta     = np.arcsin( q*wave / (4.*np.pi) )
-            SinTheta  = np.sin(2.0 * theta)
-            correctn  = out_of_plane      * ( 1. - SinTheta**2 * np.cos( self.phi_values )**2 )
-            correctn += (1.-out_of_plane) * ( 1. - SinTheta**2 * np.sin( self.phi_values )**2 )
+        logger.info('Applying polarization correction w/P_x=%.3f' % xaxis_polarization)
+
+        correctn = np.zeros((self.num_q, self.num_phi))
+
+        for i,q in enumerate(self.q_values):
+            theta     = np.arcsin( q / (2.0 * self.k) )
+            sin_theta = np.sin(2.0 * theta)
+            correctn[i,:]  = (1.-xaxis_polarization) * \
+                             ( 1. - np.square(sin_theta * np.cos(self.phi_values)) ) + \
+                             xaxis_polarization  * \
+                             ( 1. - np.square(sin_theta * np.sin(self.phi_values)) )
             
-            for shot_intensities in self.polar_intensities_iter:
-                shot_intensities[i,:] /= correctn
+        for pi in self.polar_intensities_iter:
+            pi[:,:] *= correctn[:,:]
 
         return
         
@@ -2624,7 +2629,7 @@ class Rings(object):
             filename += '.ring'
             
         if os.path.exists(filename):
-            raise IOError('File: %d already exists! Aborting...' % filename)
+            raise IOError('File: %s already exists! Aborting...' % filename)
 
         # if self.polar_mask == None, then save a single 0
         if self.polar_mask == None:

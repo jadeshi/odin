@@ -586,11 +586,44 @@ class TestRings(object):
         assert_allclose(cospsi.min(), np.cos(2.0 * theta_max), rtol=0.01, err_msg='pi fail')
 
     def test_q_index(self):
-        assert self.rings.q_index(1.0) == 0
-        assert self.rings.q_index(2.0) == 1
+        assert self.rings.q_index(self.q_values[0]) == 0
+        assert self.rings.q_index(self.q_values[1]) == 1
         
     def test_depolarize(self):
-        raise NotImplementedError('need test')
+        
+        xaxis_polarization = 0.99 # chosen for use w/real data below
+        
+        # two part test -- first take a real (polarized) ring and make sure
+        # it gets corrected
+        
+        # TEST NOT IN (todo) -- the experimental data are quite noisy
+        
+        # second part of the test is to check it against this stable ref implmt
+        # note this isn't really a correction, since we're doing it to
+        # simulation data w/o any polarization
+        
+        # --> dermen's code below
+        
+        out_of_plane = 1.0 - xaxis_polarization
+        
+        qs = self.rings.q_values
+        wave = 2. * np.pi / self.rings.k
+        ref_i = self.rings.polar_intensities.copy()
+        phis = self.rings.phi_values
+        
+        for i in xrange( len ( qs ) ):
+            q = qs[i]
+            theta = np.arcsin( q*wave / 4./ np.pi)
+            SinTheta = np.sin( 2 * theta )
+            correctn = out_of_plane * ( 1. - SinTheta**2 * np.cos( phis )**2 )
+            correctn += (1.-out_of_plane) * ( 1. - SinTheta**2 * np.sin( phis )**2 )
+            ref_i[:,i,:] /= correctn
+            
+        # <-- end reference implementation
+        
+        self.rings.depolarize(xaxis_polarization)
+        ip = self.rings.polar_intensities
+        assert_allclose(ip / ip[None,None,0], ref_i / ref_i[None,None,0])
         
     # def test_smooth_intensities(self):
     #     raise NotImplementedError('need test')
