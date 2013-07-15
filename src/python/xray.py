@@ -1433,7 +1433,7 @@ class Shotset(object):
         Optional Parameters
         -------------------
         q_spacing : float
-            The resolution of the |q|-axis
+            The resolution of the |q|-axis, in inverse angstroms.
 
         Returns
         -------
@@ -1452,7 +1452,7 @@ class Shotset(object):
         for i in range(ind.max()):
             x = (ind == i)
             if np.sum(x) > 0:
-                avg[i] = np.mean(average_intensity)
+                avg[i] = np.mean(average_intensity[x])
             else:
                 avg[i] = 0.0
 
@@ -2357,9 +2357,24 @@ class Rings(object):
         if ((x_mask == None) and (y_mask == None)):
             xm = 1.0
             ym = 1.0
+            N_delta = float(n_col) # normalization factor
+            
         else:
+            
+            # if we only supply one mask...
+            if x_mask == None:
+                x_mask = np.ones_like(y_mask)
+            elif y_mask == None:
+                y_mask = np.ones_like(x_mask)
+            
             xm = x_mask[None,:]
             ym = y_mask[None,:]
+            
+            # if we're masking, we have a delta-dependent normalization
+            N_delta = np.zeros(n_col)
+            for delta in range(n_col):
+                N_delta[delta] = np.sum( xm * np.roll(ym, delta) )
+            N_delta = N_delta[None,:]
             
         # use these for mean subtracting, not normalizing
         x_bar = x.mean(axis=1)[:,None]
@@ -2370,6 +2385,9 @@ class Rings(object):
         ffy  = np.fft.rfft((y - y_bar) * ym, n=n_col, axis=1)
         corr = np.fft.irfft( ffx * np.conjugate(ffy), n=n_col, axis=1)
         assert corr.shape == (n_row, n_col)
+                    
+        # normalize by the number of pairs
+        corr = np.select([corr != 0.0, corr == 0.0], [corr / N_delta, 0.0])
         
         if flatten:
             corr = corr.flatten()

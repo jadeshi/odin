@@ -618,8 +618,10 @@ class TestRings(object):
         c_norm = brute_force_masked_correlation(x, mask, normed=True)
         
         ref = np.zeros(100)
-        for i in range(100):
-            ref[i] = np.correlate(x, np.roll(x, i))
+        for delta in range(100):
+            ref[delta] = np.sum( (x - x.mean()) * \
+                                 (np.roll(x, delta) - x.mean()) ) \
+                                  / float(len(x))
 
         assert_allclose(ref / ref[0], c_norm, err_msg='normalized fail')
         assert_allclose(ref, c, err_msg='unnormalized fail')
@@ -628,20 +630,19 @@ class TestRings(object):
 
         q1 = 1.0 # chosen arb.
         q_ind = self.rings.q_index(q1)
-        
         x = self.rings.polar_intensities[0,q_ind,:].flatten()
-        y = self.rings.polar_intensities[0,q_ind,:].flatten()
-        assert len(x) == len(y)
 
-        ring = self.rings._correlate_rows(x, y)
+        ring = self.rings._correlate_rows(x, x)
 
         ref = np.zeros(len(x))
-        for i in range(len(x)):
-            ref[i] = np.correlate(x, np.roll(y, i))
-        # ref /= x.mean() * y.mean() * float(len(x))
-        # ref -= 1.0
+        for delta in range(len(x)):
+            ref[delta] = np.sum( (x - x.mean()) * \
+                                 (np.roll(x, delta) - x.mean()) ) \
+                         / float(len(x))
         
-        assert_allclose(ref, ring)
+        assert_allclose(ref / ref[0], ring / ring[0], 
+                        err_msg='failed w/forced normalization')
+        assert_allclose(ref, ring, err_msg='error in normalization')
 
     def test_corr_rows_w_mask(self):
 
@@ -654,29 +655,33 @@ class TestRings(object):
         
         corr = self.rings._correlate_rows(x, x, x_mask, x_mask)
         true_corr = self.rings._correlate_rows(x, x)
-        ref_corr = brute_force_masked_correlation(x, x_mask)
+        ref_corr = brute_force_masked_correlation(x, x_mask, normed=False)
 
+        normed_ref = ref_corr / ref_corr[0]
+        normed_corr = corr / corr[0]
+        
         # big tol, but w/a lot of masking there is a ton of noise
-        assert_allclose(true_corr, corr, atol=0.1)
-        assert_allclose(ref_corr, corr, rtol=1e-03)
+        assert_allclose(normed_ref, normed_corr, atol=1e-2,
+                        rtol=1e-2, err_msg='correlation incorrect')
+        assert_allclose(ref_corr, corr, atol=1e-1,
+                        rtol=1e-1, err_msg='normalization incorrect')
+        assert_allclose(true_corr / true_corr[0], normed_corr, atol=0.1, 
+                        err_msg='masked correlation very different from unmasked version')
         
     def test_mask_nomask_consistency(self):
         
         q1 = 1.0 # chosen arb.
         q_ind = self.rings.q_index(q1)
         
-        x = self.rings.polar_intensities[0,q_ind,:].flatten()
-        y = self.rings.polar_intensities[1,q_ind,:].flatten()
-        ref = self.rings._correlate_rows(x, y).mean(0)
-
         x = self.rings.polar_intensities[0,q_ind,:].flatten().copy()
-        no_mask = np.ones(x.shape[0], dtype=np.bool)
+        blank_mask = np.ones(x.shape[0], dtype=np.bool)
         
         corr_nomask = self.rings._correlate_rows(x, x)
-        corr_mask   = self.rings._correlate_rows(x, x)
+        corr_mask   = self.rings._correlate_rows(x, x, blank_mask)
+        corr_mask2  = self.rings._correlate_rows(x, x, blank_mask, blank_mask)
 
-        # big tol, but w/a lot of masking there is a ton of noise
-        assert_allclose(corr_mask, corr_nomask, rtol=1e-3)
+        assert_allclose(corr_mask, corr_mask2)
+        assert_allclose(corr_mask, corr_nomask)
         
     def test_correlate_intra(self):
         raise NotImplementedError('need test')
@@ -693,7 +698,7 @@ class TestRings(object):
         
         x = self.rings.polar_intensities[0,q_ind,:].flatten()
         y = self.rings.polar_intensities[1,q_ind,:].flatten()
-        ref = self.rings._correlate_rows(x, y).mean(0)
+        ref = self.rings._correlate_rows(x, y)
         
         assert_allclose(ref, inter)
         
