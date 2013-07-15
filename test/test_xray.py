@@ -551,15 +551,12 @@ class TestRings(object):
     def test_simulation(self):
         rings = xray.Rings.simulate(self.traj, 1, self.q_values,
                                     self.num_phi, 1) # 1 molec, 1 shots
-        # todo: better than smoke test
-        
         
     def test_polar_intensities_type(self):
         assert self.rings._polar_intensities_type == 'array'
         
     def test_polar_intensities(self):
         pi = self.rings.polar_intensities
-        assert pi.shape == (2, len(self.q_values), self.num_phi)
         assert pi.shape == (self.num_shots, len(self.q_values), self.num_phi)
         
     def test_polar_intensities_iter(self):
@@ -583,7 +580,6 @@ class TestRings(object):
         assert self.rings.num_datapoints == self.num_phi * len(self.q_values)
 
     def test_cospsi(self):
-        raise NotImplementedError('what do we want here?')
         cospsi = self.rings._cospsi(1.0, 1.0)
         assert_allclose(cospsi[0], 1.0, rtol=0.01, err_msg='0 fail')
         theta_max = np.pi/2. + np.arcsin( 1.0 / (2.*self.rings.k) )
@@ -596,8 +592,8 @@ class TestRings(object):
     def test_depolarize(self):
         raise NotImplementedError('need test')
         
-    def test_smooth_intensities(self):
-        raise NotImplementedError('need test')
+    # def test_smooth_intensities(self):
+    #     raise NotImplementedError('need test')
 
     def test_intensity_profile(self):
         q_values = [2.4, 2.67, 3.0] # should be a peak at |q|=2.67
@@ -684,17 +680,45 @@ class TestRings(object):
         assert_allclose(corr_mask, corr_nomask)
         
     def test_correlate_intra(self):
-        raise NotImplementedError('need test')
-        # smoke tests : these functions are very simple
-        intra = self.rings.correlate_intra(1.0, 1.0)
+
+        # test autocorrelator
+        intra = self.rings.correlate_intra(1.0, 1.0, normed=True,)
+        assert intra.shape == (self.rings.num_phi,)
+        
+        q_ind = self.rings.q_index(1.0)
+        ref_corr = np.zeros(self.num_phi)
+        for i in range(self.num_shots):
+            x = self.rings.polar_intensities[i,q_ind,:].flatten().copy()
+            ref_corr += brute_force_masked_correlation(x, np.ones(len(x), dtype=np.bool), normed=True)
+        ref_corr /= float(self.num_shots)
+        
+        assert_allclose(intra, ref_corr)
+        
+        # test norming
+        assert np.abs(intra[0] - 1.0) < 1e-8
+        intra_unnorm = self.rings.correlate_intra(1.0, 1.0, normed=False)
+        assert not np.abs(intra_unnorm[0] - 1.0) < 1e-8
+        assert_allclose(intra, intra_unnorm / intra_unnorm[0])
+        
+        # test cross correlator
+        intra = self.rings.correlate_intra(1.0, 2.0, normed=True)
+        assert not np.abs(intra_unnorm[0] - 1.0) < 1e-8
+        
+        # test the limit on 
         intra = self.rings.correlate_intra(1.0, 1.0, num_shots=1)
+        assert intra.shape == (self.rings.num_phi,)
 
     def test_correlate_inter(self):
+        
+        raise Exception('test bad')
+        
         q = 1.0
         q_ind = self.rings.q_index(q)
         
         # there's only one possible inter pair for these guys (only two shots)
-        inter = self.rings.correlate_inter(q, q, mean_only=True)
+        # TJL to self :: don't be so dumb, relying on two shots is asking for
+        #                trouble!
+        inter = self.rings.correlate_inter(q, q, mean_only=True, normed=False)
         
         x = self.rings.polar_intensities[0,q_ind,:].flatten()
         y = self.rings.polar_intensities[1,q_ind,:].flatten()
@@ -746,53 +770,73 @@ class TestRings(object):
         if os.path.exists('test.ring'): os.remove('test.ring')
         self.rings.save('test.ring')
         r = xray.Rings.load('test.ring')
-        assert np.all( self.rings.polar_intensities == r.polar_intensities)
+        assert_allclose(self.rings.polar_intensities, r.polar_intensities)
         if os.path.exists('test.ring'): os.remove('test.ring')
         
     def test_io_forcemem(self):
-        raise NotImplementedError('need test')
-        
-    def test_io_specific_shots(self):
-        raise NotImplementedError('need test')
+        if os.path.exists('test.ring'): os.remove('test.ring')
+        self.rings.save('test.ring')
+        r = xray.Rings.load('test.ring', force_into_memory=True)
+        assert_allclose(self.rings.polar_intensities, r.polar_intensities)
+        assert type(r.polar_intensities) == np.ndarray
+        if os.path.exists('test.ring'): os.remove('test.ring')
     
     def test_append(self):
-        raise NotImplementedError('need test')
+        if os.path.exists('test.ring'): os.remove('test.ring')
+        
+        self.rings.save('test.ring')
+        r = xray.Rings.load('test.ring', force_into_memory=True)
+
+        self.rings.append(r)
+        assert self.rings.num_shots == 2 * self.num_shots
+        
+        if os.path.exists('test.ring'): os.remove('test.ring')
         
         
+class TestRingsFromDisk(TestRings):
+    """
+    Test the rings class when the handle is a tables array.
+    """
+
+    def setup(self):
+
+        self.q_values  = np.array([1.0, 2.0])
+        self.num_phi   = 360
+        self.traj      = trajectory.load(ref_file('ala2.pdb'))
+        self.num_shots = 3
+
+        # generate the tables file on disk, then re-open it
+        intensities = np.abs( np.random.randn(self.num_shots, len(self.q_values),
+                                              self.num_phi) )
+
+        if os.path.exists('tmp_tables.h5'):
+            os.remove('tmp_tables.h5')
+            
+        hdf = tables.File('tmp_tables.h5', 'w')
+        a = tables.Atom.from_dtype(np.dtype(np.float64))
+        node = hdf.createEArray(where='/', name='data',
+                                shape=(0, len(self.q_values), self.num_phi), 
+                                atom=a, filters=io.COMPRESSION)
+        node.append(intensities)
+        hdf.close()
+
+        self.tables_file = tables.File('tmp_tables.h5', 'r+')
+        pi = self.tables_file.root.data
+        pm = np.random.binomial(1, 0.9, size=(len(self.q_values), self.num_phi))
+        k = 1.0
         
-# class TestRingsFromDisk(TestRings):
-#     """
-#     Test the rings class when the handle is a tables array.
-#     """
-# 
-#     def setup(self):
-# 
-#         self.q_values  = np.array([1.0, 2.0])
-#         self.num_phi   = 360
-#         self.traj      = trajectory.load(ref_file('ala2.pdb'))
-#         self.num_shots = 3
-# 
-#         # generate the tables file on disk, then re-open it
-#         intensities = np.abs( np.random.randn(self.num_shots, len(self.q_values),
-#                                               self.num_phi) )
-#         io.saveh('tmp_tables.h5', data=intensities)
-# 
-#         self.tables_file = tables.File('tmp_tables.h5')
-#         pi = self.tables_file.root.data
-#         pm = np.random.binomial(1, 0.9, size=(len(self.q_values), self.num_phi))
-#         k = 1.0
-#         
-#         self.rings = xray.Rings(self.q_values, pi, k, pm)
-# 
-#         return
-#         
-#     def test_polar_intensities_type(self):
-#         assert self._polar_intensities_type == 'tables'
-# 
-#     def teardown(self):
-#         self.tables_file.close()
-#         os.remove('tmp_tables.h5')
-#         return
+        self.rings = xray.Rings(self.q_values, pi, k, pm)
+
+        return
+        
+    def test_polar_intensities_type(self):
+        assert self.rings._polar_intensities_type == 'tables'
+
+    def teardown(self):
+        self.tables_file.close()
+        if os.path.exists('tmp_tables.h5'):
+            os.remove('tmp_tables.h5')
+        return
 
 
 class TestMisc(object):

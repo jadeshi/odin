@@ -1872,7 +1872,7 @@ class Rings(object):
                 pi_data = self._polar_intensities.read()
             except MemoryError as e:
                 logger.critical(e)
-                raise MemoryError('insufficient memory to load up all intensity data')
+                raise MemoryError('insufficient memory to load intensity data')
         return pi_data
     
         
@@ -1881,7 +1881,7 @@ class Rings(object):
         if self._polar_intensities_type == 'array':
             pi_iter = self._polar_intensities
         elif self._polar_intensities_type == 'tables':
-            pi_iter = self._polar_intensities.iterrows(start=0)
+            pi_iter = self._polar_intensities.iterrows()
             pi_iter.nrow = -1 # reset the iterator to the start
         return pi_iter
     
@@ -2034,68 +2034,71 @@ class Rings(object):
 
         return
         
-        
-    def smooth_intensities(self, q, beta=10.0, window_size=11, copy=True):
-        """
-        Apply an intensity smoothing function to a Rings object.
-
-        Parameters
-        ----------
-        q : float or array like
-            q position where the smoothing should be applied. If array like, then
-            smoothing will be applied to all listed q values.  
-
-        Optional Parameters
-        -------------------
-        beta : float
-            Parameter controlling the strength of the smoothing -- bigger beta 
-            results in a smoother function.
-
-        window_size : int
-            The size of the Kaiser window to apply, i.e. the number of neighboring
-            points used in the smoothing.
-
-        copy: bool
-            Whether or not to modify current ring or produce a new copied version.
-
-        Returns
-        -------
-        ring or new_ring : Rings object
-            An odin Rings object
-        """
-        
-        raise NotImplementedError('not updated for new rings data storage')
-
-        if type(q) == float:
-            qs = [q]
-
-        if copy == True:
-
-            rp = np.copy( self.polar_intensities )
-            n_shot = rp.shape[0]
-
-            for q in qs :
-                i_q = self.q_index( q )
-                for i_shot in xrange( n_shot ) :
-                    rp[ i_shot, i_q ] = utils.smooth(rp[ i_shot, i_q ], beta, window_size)
-
-            new_ring = Rings(self.q_values, rp, self.k, self.polar_mask)
-
-            return new_ring
-
-        if copy == False:
-
-            rp = self.polar_intensities 
-            n_shot = rp.shape[0]
-
-            for q in qs:
-                i_q = self.q_index( q )
-                for i_shot in xrange( n_shot ) :
-                    rp[ i_shot, i_q ] = utils.smooth( rp[ i_shot, i_q ], beta, window_size )
-
-            ring = Rings(self.q_values, rp, self.k, self.polar_mask)
-
-            return ring
+       
+    # TJL commented the below until it recieves a unit test
+    # it needs to change to accomodate the new polar_intensities as well
+    
+    # def smooth_intensities(self, q, beta=10.0, window_size=11, copy=True):
+    #     """
+    #     Apply an intensity smoothing function to a Rings object.
+    # 
+    #     Parameters
+    #     ----------
+    #     q : float or array like
+    #         q position where the smoothing should be applied. If array like, then
+    #         smoothing will be applied to all listed q values.  
+    # 
+    #     Optional Parameters
+    #     -------------------
+    #     beta : float
+    #         Parameter controlling the strength of the smoothing -- bigger beta 
+    #         results in a smoother function.
+    # 
+    #     window_size : int
+    #         The size of the Kaiser window to apply, i.e. the number of neighboring
+    #         points used in the smoothing.
+    # 
+    #     copy: bool
+    #         Whether or not to modify current ring or produce a new copied version.
+    # 
+    #     Returns
+    #     -------
+    #     ring or new_ring : Rings object
+    #         An odin Rings object
+    #     """
+    #     
+    #     raise NotImplementedError('not updated for new rings data storage')
+    # 
+    #     if type(q) == float:
+    #         qs = [q]
+    # 
+    #     if copy == True:
+    # 
+    #         rp = np.copy( self.polar_intensities )
+    #         n_shot = rp.shape[0]
+    # 
+    #         for q in qs :
+    #             i_q = self.q_index( q )
+    #             for i_shot in xrange( n_shot ) :
+    #                 rp[ i_shot, i_q ] = utils.smooth(rp[ i_shot, i_q ], beta, window_size)
+    # 
+    #         new_ring = Rings(self.q_values, rp, self.k, self.polar_mask)
+    # 
+    #         return new_ring
+    # 
+    #     if copy == False:
+    # 
+    #         rp = self.polar_intensities 
+    #         n_shot = rp.shape[0]
+    # 
+    #         for q in qs:
+    #             i_q = self.q_index( q )
+    #             for i_shot in xrange( n_shot ) :
+    #                 rp[ i_shot, i_q ] = utils.smooth( rp[ i_shot, i_q ], beta, window_size )
+    # 
+    #         ring = Rings(self.q_values, rp, self.k, self.polar_mask)
+    # 
+    #         return ring
     
 
     def intensity_profile(self):
@@ -2200,8 +2203,8 @@ class Rings(object):
             
         if normed:
             intra /= np.sqrt( var1 * var2 / np.square(float(num_shots)) )
-            assert intra.max() <=  1.0
-            assert intra.min() >= -1.0
+            assert intra.max() <=  1.1
+            assert intra.min() >= -1.1
         
         return intra
     
@@ -2274,8 +2277,10 @@ class Rings(object):
             #        place on disk -- do some tests, see if it's a problem,
             #        act accordingly
             elif self._polar_intensities_type == 'tables':
-                rings1 = self._polar_intensities.read(i)[q_ind1,:]
-                rings2 = self._polar_intensities.read(j)[q_ind2,:]
+                rings1 = self._polar_intensities.read(i)
+                rings2 = self._polar_intensities.read(j)
+                rings1 = rings1[0,q_ind1,:]
+                rings2 = rings2[0,q_ind2,:]
             
             if mean_only:
                 inter += self._correlate_rows(rings1, rings2, mask1, mask2)
@@ -2627,24 +2632,24 @@ class Rings(object):
         else:
             pm = self.polar_mask
             
-        f = tables.File(filename, 'w')
+        hdf = tables.File(filename, 'w')
 
         # these are going to be CArrays
-        io.saveh( f,
+        io.saveh( hdf,
                   q_values = self._q_values,
                   k = np.array([self.k]),
                   polar_mask = pm )
                   
         # but we want `polar_intensities` to be an EArray
         a = tables.Atom.from_dtype(np.dtype(np.float64))
-        pi_node = f.createEArray(where='/', name='polar_intensities',
-                                 shape=(0, self.num_q, self.num_phi), 
-                                 atom=a, filters=io.COMPRESSION)
+        pi_node = hdf.createEArray(where='/', name='polar_intensities',
+                                   shape=(0, self.num_q, self.num_phi), 
+                                   atom=a, filters=io.COMPRESSION)
                                         
         for intx in self.polar_intensities_iter:
             pi_node.append(intx[None,:,:])
         
-        f.close()
+        hdf.close()
 
         logger.info('Wrote %s to disk.' % filename)
 
@@ -2710,19 +2715,33 @@ class Rings(object):
             
         Returns
         -------
-        None : void
+        None
         """
-        
-        raise NotImplementedError('needs update')
         
         if not np.all(other_rings.q_values == self.q_values):
             raise ValueError('Two rings must have exactly the same q_values')
         if not other_rings.k == self.k:
             raise ValueError('Two rings must have exactly the same wavenumber (k)')
             
-        combined_pi = np.vstack( (self.polar_intensities, other_rings.polar_intensities) )
-        self.polar_intensities = combined_pi
-
+        if self._polar_intensities_type == 'array':            
+            combined_pi = np.vstack( (self.polar_intensities, other_rings.polar_intensities) )
+            self._polar_intensities = combined_pi
+            
+        elif self._polar_intensities_type == 'tables':
+            
+            if not type(self._polar_intensities) == tables.earray.EArray:
+                raise TypeError('Malformed Rings object : internal tables type'
+                                ' for `polar_intensities` is non-extensible '
+                                'CArray. EArrays are necessary to append data.'
+                                ' This may be solved by first saving the Rings'
+                                ' to disk, loading them back into memory with'
+                                ' `force_into_memory` set to true, and then '
+                                'saving/loading once more. The result *should*'
+                                ' be an EArray version of the Rings object.')
+            
+            for pi_intx in other_rings.polar_intensities_iter:
+                self._polar_intensities.append(pi_intx[None,:,:])
+            
         return
 
 
