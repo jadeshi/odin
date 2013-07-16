@@ -2023,6 +2023,9 @@ class Rings(object):
         """
         
         logger.info('Applying polarization correction w/P_x=%.3f' % xaxis_polarization)
+        if (xaxis_polarization > 1.0) or (xaxis_polarization < 0.0):
+            raise ValueError('Polarization cannot be greater than 100%! Got '
+                             '`xaxis_polarization` value of %.3f' % xaxis_polarization)
 
         correctn = np.zeros((self.num_q, self.num_phi))
 
