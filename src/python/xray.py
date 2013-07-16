@@ -21,6 +21,7 @@ from scipy.special import legendre
 from odin import math2
 from odin import scatter
 from odin import utils
+from odin import parse
 
 from mdtraj import io
 from mdtraj.utils.arrays import ensure_type
@@ -905,27 +906,16 @@ class Shotset(object):
     fit in memory.
     """
 
-    def __init__(self, intensities, detector, mask=None):
+    def __init__(self, intensities, detector, mask=None, filters=[]):
         """
         Instantiate a Shotset class.
 
         Parameters
         ----------
-        intensities : ndarray, float OR types.GeneratorType
+        intensities : ndarray, float OR tables.earray.EArray OR tables.carray.CArray
             There are two ways to pass intensity data: either as an explicit
-            numpy array in memory, or as a generator object that will iterate
-            over individual shots. The generator allows for an implicit
-            representation of the intensity data to be passed -- the data may
-            actually be on disk, for instance.
-            
-            Array:
-            Either a list of one-D arrays, or a two-dimensional array. The first
-            dimension should index shots, the second intensities for each pixel
-            in that shot.
-            
-            Generator:
-            A generator that yields one-D numpy arrays, each array representing
-            the intensities for a single shot.
+            numpy array in memory, or as a tables array object that will iterate
+            over individual shots.
 
         detector : odin.xray.Detector
             A detector object, containing the pixel positions in space.
@@ -936,7 +926,22 @@ class Shotset(object):
             An array the same size (and shape -- 1d) as `intensities` with a
             'np.True' in all indices that should be kept, and 'np.False'
             for all indices that should be masked.
+            
+        filters : list
+            A list of callables that will get applied to the intensity data
+            whenever it is accessed. Use with caution.
         """
+        
+        # initialize some internals
+        self._intensity_filters = []
+        if not utils.is_iterable(filters):
+            raise TypeError('`filters` argument must be iterable')
+        elif len(filters) > 0:
+            for flt in filters:
+                self._add_intensity_filter(flt)
+        else:
+            pass
+        
 
         # parse detector
         if not isinstance(detector, Detector):
@@ -972,12 +977,19 @@ class Shotset(object):
                 raise ValueError('`intensities` does not have the same '
                                  'number of pixels as `detector`')
             self._intensities = intensities
-
+            
+        elif np.product(s[1:]) == self.detector.num_pixels:
+            logger.debug('Non-linear intensity data :: attempting to filter')
+            for itx in intensities:
+                itx = self._filter_intensities(itx) 
+                break
+            if not itx.shape == (self.detector.num_pixels,):
+                raise ValueError('`intensities` does not have the same '
+                                 'number of pixels as `detector`')
+                
         else:
             raise ValueError('`intensities` has a invalid number of '
                              'dimensions, must be 1 or 2 (got: %d)' % len(s))
-                             
-        assert len(self.intensities.shape) == 2
 
         
         # parse mask
@@ -1019,18 +1031,16 @@ class Shotset(object):
         """
         Fetch the intensity data from disk and return it as an array.
         """
-        if type(self._intensities) == np.ndarray:
-            i_data = self._intensities
-        elif type(self._intensities) in [tables.earray.EArray, 
-                                                tables.carray.CArray]:
-            try:
-                i_data = self._intensities.read()
-            except MemoryError as e:
-                logger.critical(e)
-                raise MemoryError('Insufficient memory to complete operation.'
-                                  ' Work with intensity data on disk.')
-        else:
-            raise RuntimeError('incorrect type in self._intensities')
+        try:
+            i_data = np.zeros((self.num_shots, self.num_pixels))
+        except MemoryError as e:
+            logger.critical(e)
+            raise MemoryError('Insufficient memory to complete operation.'
+                              ' Work with Shotset.intensities_iter().')
+                              
+        for i, itx in enumerate(self.intensities_iter):
+            i_data[i] = itx
+        
         return i_data
             
     
@@ -1046,7 +1056,44 @@ class Shotset(object):
                                          tables.carray.CArray]:
             i_iter = self._intensities.iterrows()
             i_iter.nrow = -1 # reset the iterator to the start
-        return i_iter
+        else:
+            raise RuntimeError('invalid type in self._intensities')
+            
+        # yield the filtered result
+        for x in i_iter:
+            yield self._filter_intensities(x)
+        
+        
+    def _filter_intensities(self, intensities):
+        """
+        Apply any filters in self._intensity_filters to the intensity data
+        and return the modified intensities.
+        
+        Parameters
+        ----------
+        intensities : np.ndarray
+            The intensities to filter.
+            
+        Returns
+        -------
+        intensities : np.ndarray
+            The filtered intensities
+        """
+        if len(self._intensity_filters) > 0:
+            for flt in self._intensity_filters:
+                intensities = flt(intensities)
+        return intensities
+    
+        
+    def _add_intensity_filter(self, flt):
+        """
+        Append a filter to the list of filters to apply to the intensity data.
+        """
+        if not hasattr(flt, '__call__'):
+            raise TypeError('`flt` filter must be callable')
+        else:
+            self._intensity_filters.append(flt)
+        return
     
 
     def __len__(self):
@@ -1117,7 +1164,7 @@ class Shotset(object):
         if shot_index == None:
             inten = self.average_intensity
         else:
-            inten = self.intensities[shot_index,:]
+            raise NotImplementedError()
 
         if (num_x == None) or (num_y == None):
             # todo : better performance if needed (implicit detector)
@@ -1688,7 +1735,7 @@ class Shotset(object):
     @classmethod
     def load(cls, filename, force_into_memory=False, to_load=None):
         """
-        Loads the a Shotset from disk. Must be `.shot` or `.cxi` format.
+        Loads the a Shotset from disk. Must be `.shot` format.
 
         Parameters
         ----------
@@ -1712,6 +1759,11 @@ class Shotset(object):
         -------
         shotset : odin.xray.Shotset
             A shotset object
+            
+        See Also
+        --------
+        load_cxi : classmethod
+            Load a CXIdb file as a shotset.
         """
         
         # figure out which shots to load
@@ -1724,56 +1776,104 @@ class Shotset(object):
 
 
         # load from a shot file
-        if filename.endswith('.shot'):
+        if not filename.endswith('.shot'):
+            raise IOError('Invalid format for ShotSet file, must be .cxi, got:'
+                          ' %s' % filename)
             
-            hdf = tables.File(filename, 'r+')
-            
-            num_shots = int(hdf.root.num_shots.read())
-            d = Detector._from_serial(hdf.root.detector.read())
-            mask = hdf.root.mask.read()
+        hdf = tables.File(filename, 'r+')
+        
+        num_shots = int(hdf.root.num_shots.read())
+        d = Detector._from_serial(hdf.root.detector.read())
+        mask = hdf.root.mask.read()
 
-            # check for our flag that there is no mask
-            if np.all(mask == np.array([0])):
-                mask = None
+        # check for our flag that there is no mask
+        if np.all(mask == np.array([0])):
+            mask = None
 
-            if to_load == None: # load all
-                if force_into_memory:
-                    intensities_handle = hdf.root.intensities.read()
-                    hdf.close()
-                    hdf = None
-                else:
-                    intensities_handle = hdf.root.intensities
-                    
-            else: # load subset
-            
-                if to_load.max() > num_shots + 1:
-                    raise ValueError('Asked to load shot %d in a data set of %d'
-                                     ' total shots' % (to_load.max(), num_shots))
-                    
-                if not force_into_memory:
-                    logger.warning('Shotset.load() recieved `to_load` flag while'
-                                   ' `force_into_memory` is False -- must load'
-                                   ' all data into memory to select subset. '
-                                   'Loading data into memory...')
-                    
-                intensities_handle = np.zeros((len(to_load), d.num_pixels))
-                logger.info('loading %d of %d shots...' % (len(to_load), num_shots))
-                
-                for i,s in enumerate(to_load):
-                    intensities_handle[i,:] = hdf.root.intensities.read(s)
+        if to_load == None: # load all
+            if force_into_memory:
+                intensities_handle = hdf.root.intensities.read()
                 hdf.close()
-
-
-        elif filename.endswith('.cxi'):
-            raise NotImplementedError() # todo
-
-        else:
-            raise ValueError('Must load a shotset file [.shot, .cxi]')
+                hdf = None
+            else:
+                intensities_handle = hdf.root.intensities
+                
+        else: # load subset
+        
+            if to_load.max() > num_shots + 1:
+                raise ValueError('Asked to load shot %d in a data set of %d'
+                                 ' total shots' % (to_load.max(), num_shots))
+                
+            if not force_into_memory:
+                logger.warning('Shotset.load() recieved `to_load` flag while'
+                               ' `force_into_memory` is False -- must load'
+                               ' all data into memory to select subset. '
+                               'Loading data into memory...')
+                
+            intensities_handle = np.zeros((len(to_load), d.num_pixels))
+            logger.info('loading %d of %d shots...' % (len(to_load), num_shots))
+            
+            for i,s in enumerate(to_load):
+                intensities_handle[i,:] = hdf.root.intensities.read(s)
+            hdf.close()
 
 
         ss = cls(intensities_handle, d, mask)
         ss._hdf = hdf
 
+        return ss
+    
+
+    @classmethod
+    def load_cxi(cls, filename, detector, mask):
+        """
+        Load a CXIdb file as a ShotSet.
+        
+        Parameters
+        ----------
+        filename : str
+            Path to the CXIdb file on disk.
+            
+        detector : xray.Detector OR str
+            Either a path to a .dtc file, or a detector object.
+            
+        mask : np.ndarray, bool OR str OR None
+            A boolean mask to apply to the data. Can also be a pypad .mask file.
+            Finally, can be 'None', in which case no mask is used.
+        """
+        
+        if not filename.endswith('.cxi'):
+            raise IOError('`load_cxi` can only load files with extension .cxi,'
+            ' got: %s' % filename)
+            
+        if type(detector) == str:
+            dtc = Detector.load(detector)
+        elif isinstance(detector, Detector):
+            dtc = detector
+        else:
+            raise TypeError('`detector` must be type {str, xray.Detector}, '
+                            'got: %s' % (type(detector),))
+                            
+        if type(mask) == str:
+            try:
+                from pypad.mask import PadMask
+            except ImportError as e:
+                logger.critical(e)
+                raise ImportError('must have pypad installed to load a .mask file')
+            padmask = PadMask.load(mask)
+            m = parse.CheetahCXI.cheetah_instensities_to_odin(padmask.mask2d)
+        elif type(mask) == np.ndarray:
+            m = mask.astype(np.bool)
+        elif mask == None:
+            m = None
+        else:
+            raise TypeError('`mask` must be type {str, np.ndarray}, '
+                            'got: %s' % (type(mask),))
+                            
+        cxi = parse.CheetahCXI(filename)               
+        ss = cls(cxi._ds1_data, dtc, m, 
+                filters=[parse.CheetahCXI.cheetah_instensities_to_odin])
+        
         return ss
 
 
@@ -2410,9 +2510,8 @@ class Rings(object):
 
     def _convert_to_kam(self, q1, q2, corr):
         """
-        Corrects the azimuthal intensity correlation on a detector for detector 
-        curvature.
-        Considers the Friedel Pairs C (cos(psi) ) = C( cos( -psi) )
+        Computes the angle between scattering vectors q1/q2 as a function of 
+        phi.
 
         Parameters
         ----------
@@ -2469,12 +2568,12 @@ class Rings(object):
         # correlation between those two rings into the Legendre basis
 
         if use_inter_statistics:
-            corr = self.correlate_intra(q1, q2,0, mean_only=True) - \
-                   self.correlate_inter(q1, q2,0, mean_only=True)
+            corr = self.correlate_intra(q1, q2, mean_only=True) - \
+                   self.correlate_inter(q1, q2, mean_only=True, num_pairs=self.num_shots)
         else:
-            corr = self.correlate_intra(q1, q2, 0,mean_only=True)
+            corr = self.correlate_intra(q1, q2, mean_only=True)
         
-        corr = self._convert_to_kam( q1, q2, corr )
+        corr = self._convert_to_kam(q1, q2, corr)
 
         # tests indicate this is a good numerical projection
         c = np.polynomial.legendre.legfit(corr[:,0], corr[:,1], order-1)

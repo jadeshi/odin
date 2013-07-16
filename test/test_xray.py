@@ -799,7 +799,7 @@ class TestRings(object):
 
         # make sure it matches up with the raw correlation
         ring = self.rings.correlate_intra(q1, q1, mean_only=True)
-        kam_ring = self.rings._convert_to_kam( q1, q1, ring )
+        kam_ring = self.rings._convert_to_kam(q1, q1, ring)
         
         # reconstruct the correlation function
         pred = np.polynomial.legendre.legval(kam_ring[:,0], cl)

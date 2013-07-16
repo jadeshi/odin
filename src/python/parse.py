@@ -21,7 +21,7 @@ from base64 import b64encode
 
 import numpy as np
 
-from odin import xray
+# from odin import xray
 from odin.math2 import find_center
 from mdtraj import io
 
@@ -343,641 +343,148 @@ class CBF(object):
         return mask
 
         
-    def as_shotset(self):
-        """
-        Convert the CBF file to an ODIN shotset representation.
-        
-        Returns
-        -------
-        cbf : odin.xray.Shotset
-            The CBF file as an ODIN shotset.
-        """
-        
-        p = np.array(list(self.corner) + [self.path_length])
-        f = np.array([self.pixel_size[0], 0.0, 0.0]) # fast is x
-        s = np.array([0.0, self.pixel_size[1], 0.0]) # slow is y
-        
-        bg = xray.BasisGrid()
-        bg.add_grid(p, s, f, self.intensities_shape)
-        
-        # todo better value for photons
-        b = xray.Beam(1e4, wavelength=self.wavelength) 
-        d = xray.Detector(bg, b.k)
-        s = xray.Shotset(self.intensities.flatten().astype(np.float64), d, self.mask)
-        
-        return s
+    # def as_shotset(self):
+    #     """
+    #     Convert the CBF file to an ODIN shotset representation.
+    #     
+    #     Returns
+    #     -------
+    #     cbf : odin.xray.Shotset
+    #         The CBF file as an ODIN shotset.
+    #     """
+    #     
+    #     p = np.array(list(self.corner) + [self.path_length])
+    #     f = np.array([self.pixel_size[0], 0.0, 0.0]) # fast is x
+    #     s = np.array([0.0, self.pixel_size[1], 0.0]) # slow is y
+    #     
+    #     bg = xray.BasisGrid()
+    #     bg.add_grid(p, s, f, self.intensities_shape)
+    #     
+    #     # todo better value for photons
+    #     b = xray.Beam(1e4, wavelength=self.wavelength) 
+    #     d = xray.Detector(bg, b.k)
+    #     s = xray.Shotset(self.intensities.flatten().astype(np.float64), d, self.mask)
+    #     
+    #     return s
+    # 
+    #     
+    # @classmethod
+    # def files_to_shotset(cls, list_of_cbf_files, shotset_filename=None,
+    #                      autocenter=True):
+    #     """
+    #     Convert a bunch of CBF files to a single ODIN shotset instance. If you 
+    #     write the shotset immediately to disk, does this in a smart "lazy" way 
+    #     so as to preseve memory.
+    #     
+    #     Parameters
+    #     ----------
+    #     list_of_cbf_files : list of str
+    #         A list of paths to CBF files to convert.
+    #     
+    #     Optional Parameters
+    #     -------------------
+    #     shotset_filename : str
+    #         The filename of the shotset to write to disk.
+    #         
+    #     autocenter : bool
+    #         Whether or not to automatically determine the center of the detector.
+    #         
+    #     Returns
+    #     -------
+    #     ss : odin.xray.Shotset
+    #         If `shotset_filename` is None, then returns the shotset object
+    #     """
+    #     
+    #     # convert one CBF, and use it to get the detector, etc info
+    #     seed_shot = cls(list_of_cbf_files[0], autocenter=autocenter).as_shotset()
+    #     
+    #     if shotset_filename:
+    #         logger.info('writing CBF files straight to disk at: %s' % shotset_filename)
+    #         
+    #         seed_shot.save(shotset_filename)
+    #         
+    #         # now open a handle to that h5 file and add to it
+    #         for i,fn in enumerate(list_of_cbf_files[1:]):
+    #              
+    #             # i+1 b/c we already saved one shot
+    #             d = {('shot%d' % (i+1,)) : cls(fn, autocenter=False).intensities.flatten()}
+    #             io.saveh( shotset_filename, **d )
+    #             
+    #         io.saveh( shotset_filename, num_shots=np.array([ len(list_of_cbf_files) ]) )
+    #         logger.info('Combined CBF data into: %s' % shotset_filename)
+    #         return
+    # 
+    #     else:
+    #         shot_i = np.zeros(( len(list_of_cbf_files), seed_shot.intensities.shape[1] ))
+    #         shot_i[0,:] = seed_shot.intensities.flatten()
+    #         
+    #         for i,fn in enumerate(list_of_cbf_files[1:]):
+    #             x = cls(fn, autocenter=False).intensities.flatten()
+    #             if not len(x) == shot_i.shape[1]:
+    #                 raise ValueError('Variable number of pixels in shots!')
+    #             shot_i[i+1,:] = x
+    #         
+    #         ss = xray.Shotset( shot_i, seed_shot.detector, seed_shot.mask )
+    # 
+    #         return ss
+    #         
+    #         
+    # @classmethod
+    # def files_to_rings(cls, list_of_cbf_files, q_values, num_phi,
+    #                    autocenter=True):
+    #     """
+    #     Convert a bunch of CBF files to a single ODIN rings instance.
+    # 
+    #     Parameters
+    #     ----------
+    #     list_of_cbf_files : list of str
+    #         A list of paths to CBF files to convert.
+    #         
+    #     q_values : ndarray, float
+    #         A one-D array containing the |q| values (in inverse Angstroms) that
+    #         you want to convert
+    # 
+    #     Optional Parameters
+    #     -------------------
+    #     num_phi : int
+    #         The number of points around each ring to interpolate.
+    #     
+    #     shotset_filename : str
+    #         The filename of the shotset to write to disk.
+    # 
+    #     autocenter : bool
+    #         Whether or not to automatically determine the center of the detector.
+    # 
+    #     Returns
+    #     -------
+    #     rings : odin.xray.Rings
+    #         If `rings_filename` is None, then returns the shotset object
+    #     """
+    #     
+    #     # save the center from one so we don't have to compute it for all
+    #     seed_cbf = cls(list_of_cbf_files[0], autocenter=autocenter)
+    #     center = seed_cbf.center.copy()
+    #     
+    #     
+    #     seed_ss = seed_cbf.as_shotset()
+    #     seed_ring = seed_ss.to_rings(q_values, num_phi=num_phi)
+    #     
+    #     
+    #     for cbf_file in list_of_cbf_files[1:]:
+    #         cbf = cls(cbf_file, autocenter=False)
+    #         cbf._center = center
+    #         ss = cbf.as_shotset()
+    #         r  = ss.to_rings(q_values, num_phi=num_phi)
+    #         seed_ring.append(r)
+    #         
+    # 
+    #     return seed_ring
     
         
-    @classmethod
-    def files_to_shotset(cls, list_of_cbf_files, shotset_filename=None,
-                         autocenter=True):
-        """
-        Convert a bunch of CBF files to a single ODIN shotset instance. If you 
-        write the shotset immediately to disk, does this in a smart "lazy" way 
-        so as to preseve memory.
-        
-        Parameters
-        ----------
-        list_of_cbf_files : list of str
-            A list of paths to CBF files to convert.
-        
-        Optional Parameters
-        -------------------
-        shotset_filename : str
-            The filename of the shotset to write to disk.
-            
-        autocenter : bool
-            Whether or not to automatically determine the center of the detector.
-            
-        Returns
-        -------
-        ss : odin.xray.Shotset
-            If `shotset_filename` is None, then returns the shotset object
-        """
-        
-        # convert one CBF, and use it to get the detector, etc info
-        seed_shot = cls(list_of_cbf_files[0], autocenter=autocenter).as_shotset()
-        
-        if shotset_filename:
-            logger.info('writing CBF files straight to disk at: %s' % shotset_filename)
-            
-            seed_shot.save(shotset_filename)
-            
-            # now open a handle to that h5 file and add to it
-            for i,fn in enumerate(list_of_cbf_files[1:]):
-                 
-                # i+1 b/c we already saved one shot
-                d = {('shot%d' % (i+1,)) : cls(fn, autocenter=False).intensities.flatten()}
-                io.saveh( shotset_filename, **d )
-                
-            io.saveh( shotset_filename, num_shots=np.array([ len(list_of_cbf_files) ]) )
-            logger.info('Combined CBF data into: %s' % shotset_filename)
-            return
-
-        else:
-            shot_i = np.zeros(( len(list_of_cbf_files), seed_shot.intensities.shape[1] ))
-            shot_i[0,:] = seed_shot.intensities.flatten()
-            
-            for i,fn in enumerate(list_of_cbf_files[1:]):
-                x = cls(fn, autocenter=False).intensities.flatten()
-                if not len(x) == shot_i.shape[1]:
-                    raise ValueError('Variable number of pixels in shots!')
-                shot_i[i+1,:] = x
-            
-            ss = xray.Shotset( shot_i, seed_shot.detector, seed_shot.mask )
-
-            return ss
-            
-            
-    @classmethod
-    def files_to_rings(cls, list_of_cbf_files, q_values, num_phi,
-                       autocenter=True):
-        """
-        Convert a bunch of CBF files to a single ODIN rings instance.
-
-        Parameters
-        ----------
-        list_of_cbf_files : list of str
-            A list of paths to CBF files to convert.
-            
-        q_values : ndarray, float
-            A one-D array containing the |q| values (in inverse Angstroms) that
-            you want to convert
-
-        Optional Parameters
-        -------------------
-        num_phi : int
-            The number of points around each ring to interpolate.
-        
-        shotset_filename : str
-            The filename of the shotset to write to disk.
-
-        autocenter : bool
-            Whether or not to automatically determine the center of the detector.
-
-        Returns
-        -------
-        rings : odin.xray.Rings
-            If `rings_filename` is None, then returns the shotset object
-        """
-        
-        # save the center from one so we don't have to compute it for all
-        seed_cbf = cls(list_of_cbf_files[0], autocenter=autocenter)
-        center = seed_cbf.center.copy()
-        
-        
-        seed_ss = seed_cbf.as_shotset()
-        seed_ring = seed_ss.to_rings(q_values, num_phi=num_phi)
-        
-        
-        for cbf_file in list_of_cbf_files[1:]:
-            cbf = cls(cbf_file, autocenter=False)
-            cbf._center = center
-            ss = cbf.as_shotset()
-            r  = ss.to_rings(q_values, num_phi=num_phi)
-            seed_ring.append(r)
-            
-
-        return seed_ring
-    
-        
-class KittyH5(object):
+class CXIdb(object):
     """
-    A class that reads the output of kitty-enhanced psana.
-    """
-        
-    def __init__(self, yaml_file, mode='asm'):
-        """
-        Load in a YAML file that describes a ShotSet collected on the LCLS.
-        
-        Parameters
-        ----------
-        yaml_file : str
-            The path to the yaml file describing the shotset to load. Assumes
-            the yaml file is of the following format:
-            
-              - data_file:
-                photon_eV:
-                ...
-                
-              - data_file:
-                photon_eV:
-                ...
-              - ...
-                
-            where each list field corresponds to a different shot.
-            
-        mode : {'raw', 'asm'}
-            Whether to load up the raw data or the assembled images.
-        """
-        
-        logger.info('Kitty Loader -- locked onto shot handle: %s' % yaml_file)
-        logger.info('Extracting %s-type data' % mode)
-        
-        f = open(yaml_file, 'r')
-        self.yaml_data = yaml.load(f)
-        f.close()
-        
-        self.descriptors = self.yaml_data['Shots']
-        
-        if mode in ['raw', 'asm']:
-            self.mode = mode
-        else:
-            raise ValueError("`mode` must be one of {'raw', 'asm'}")
-        
-        return
-    
-    @property    
-    def essential_fields(self):
-        """
-        A static property, a list of the essential data fields that must be
-        provided for each shot to convert it into ODIN.
-        """
-        essentials = ['photon_eV', 'data_file', 'detector_mm']
-        return essentials
-    
-        
-    @property
-    def num_descriptors(self):
-        return len(self.descriptors)
-    
-        
-    def convert(self, image_filter=None, max_shot_limit=None):
-        """
-        Perform the conversion from LCLS h5 files to an odin shotset.
-        
-        Optional Parameters
-        -------------------
-        image_filter : odin.xray.ImageFilter
-            An image filter that will get applied to each shot.
-        
-        max_shot_limit : int
-            If provided, will truncate the conversion after this many shots.
-        
-        Returns
-        -------
-        shotset : odin.xray.ShotSet
-            A shotset containing all the shots described in the original yaml 
-            file.
-        """
-        
-        self.shot_list = []
-        if image_filter:
-            self.filter = image_filter
-        else:
-            self.filter = None
-        
-        if max_shot_limit:
-            logger.info('Discarding all but the last %d shots' % max_shot_limit)
-            n = max_shot_limit
-        else:
-            n = self.num_descriptors
-            
-        # convert the shots using the appropriate method
-        for i in range(n):
-            if self.mode == 'raw':
-                s = self._convert_raw_shot(self.descriptors[i])
-            elif self.mode == 'asm':
-                s = self._convert_asm_shot(self.descriptors[i])
-            self.shot_list.append(s)
-    
-        return xray.Shotset(self.shot_list)
-        
-    
-    def _convert_raw_shot(self, descriptor):
-        """
-        Convert a Kitty-generated raw image h5 file to an odin.xray.Shot.
-        """
-        
-        logger.info('Loading raw image in: %s' % descriptor['data_file'])
-        
-        for field in self.essential_fields:
-            if field not in descriptor.keys():
-                raise ValueError('Essential data field %s not in YAML file!' % field)
-        
-        energy = float(descriptor['photon_eV'])
-        path_length = float(descriptor['detector_mm']) * 1000.0 # mm -> um
-        
-        # load all the relevant data from many h5s... (dumb)
-        f = tables.File(descriptor['x_raw'])
-        x = f.root.data.data.read()
-        f.close()
-        
-        f = tables.File(descriptor['y_raw'])
-        y = f.root.data.data.read()
-        f.close()
-        
-        z = np.zeros_like(x)
-        
-        f = tables.File(descriptor['data_file'])
-        path = descriptor['i_raw']
-        i = f.getNode(path).read()
-        f.close()
-        
-        # turn that data into a basis representation
-        grid_list, flat_i = self._lcls_raw_to_basis(x, y, z, i)
-        
-        # generate the detector object               
-        b = xray.Beam(100, energy=energy)
-        d = xray.Detector.from_basis( grid_list, path_length, b.k )
-        
-        # generate the shot
-        s = xray.Shot(flat_i, d)
-        
-        return s
-        
-                        
-    def _convert_asm_shot(self, descriptor, x_pixel_size=109.9, 
-                          y_pixel_size=109.9, bragg_peak_radius=458):
-        """
-        Convert a Kitty-generated assembled image h5 file to an odin.xray.Shot.
-        """
-        
-        logger.info('Loading assembled image in: %s' % descriptor['data_file'])
-        
-        for field in self.essential_fields:
-            if field not in descriptor.keys():
-                raise ValueError('Essential data field %s not in YAML file!' % field)
-                
-        energy = float(descriptor['photon_eV']) / 1000.0        # eV -> keV
-        path_length = float(descriptor['detector_mm']) * 1000.0 # mm -> um
-        logger.debug('Energy:      %f keV' % energy)
-        logger.debug('Path length: %f microns' % path_length)
-        
-        # extract intensity data
-        f = tables.File(descriptor['data_file'])
-        try:
-            path = descriptor['i_asm']
-        except KeyError as e:
-            raise ValueError('Essential data field `i_asm` not in YAML file!')
-        i = f.getNode(path).read()
-        f.close()
-        logger.debug('Read field %s in file: %s' % (descriptor['i_asm'],
-                                                    descriptor['data_file']))
-        
-        # find the center (center is in pixel units)
-        #dgeo = xray.DetectorGeometry(i)
-        center = (853.,861.) #dgeo.center
-        corner = ( -center[0] * x_pixel_size, -center[1] * y_pixel_size, 0.0 )
-        logger.debug('Found center: %s' % str(center))
-        
-        # compile a grid_list object
-        basis = (x_pixel_size, y_pixel_size, 0.0)
-        shape = (i.shape[0], i.shape[1], 1)
-        grid_list = [( basis, shape, corner )]
-        
-        # generate the detector object               
-        b = xray.Beam(100, energy=energy)
-        d = xray.Detector.from_basis( grid_list, path_length, b.k )
-
-        logger.debug('Generated detector object...')
-        
-        # generate the shot
-        s = xray.Shot(i.flatten(), d)
-        
-        return s
-        
-        
-    def _lcls_raw_to_basis(self, x, y, z, intensities, x_asics=8, y_asics=8):
-        """
-        This is a specific function that converts a set of ASICS from the LCLS
-        into a grid-basis vector representation. This representation is less
-        flexible, but much more efficient computationally.
-        
-        Parameters
-        ----------
-        x,y,z : ndarray
-            The x/y/z pixel coordinates. Assumed to be 2d arrays.
-
-        x_asics, y_asics : int
-            The number of asics in the x/y directions.
-
-        intensities : ndarray, float
-            The intensity data.
-
-        Returns
-        -------
-        grid_list: list of tuples
-            A basis vector representation of the detector pixels
-                grid_list = [ ( basis, shape, corner ) ]
-        """
-
-        if not (x.shape == y.shape) and (x.shape == z.shape) and (x.shape == intensities.shape):
-            raise ValueError('x, y, z, intensities shapes do not match!')
-
-        # do some sanity checking on the shape
-        s = x.shape
-        if not s[0] % x_asics == 0:
-            raise ValueError('`x_asics` does not evenly divide the x-dimension!')
-        if not s[1] % y_asics == 0:
-            raise ValueError('`y_asics` does not evenly divide the y-dimension!')
-
-        # determine the spacing
-        x_spacing = s[0] / x_asics
-        y_spacing = s[1] / y_asics
-
-        # grid list to hold the output grid_list = [ ( basis, shape, corner ) ]
-        grid_list = []
-        flat_intensities = np.zeros( np.product(intensities.shape) )
-
-        # iterate through each asic and extract the basis vectors
-        for ix in range(x_asics):
-            for iy in range(y_asics):
-
-                # initialize data structures
-                basis = []
-
-                # the indicies to slice the array on
-                x_start  = x_spacing * ix
-                x_finish = x_spacing * (ix+1)
-
-                y_start  = y_spacing * iy
-                y_finish = y_spacing * (iy+1)
-
-                # slice
-                xa = x[x_start:x_finish,y_start:y_finish]
-                ya = y[x_start:x_finish,y_start:y_finish]
-                za = z[x_start:x_finish,y_start:y_finish]
-                ia = intensities[x_start:x_finish,y_start:y_finish]
-
-                # determine the pixel spacing
-                for a in [xa, ya]:
-                    s1 = np.abs(a[0,0] - a[0,1])
-                    s2 = np.abs(a[0,0] - a[1,0])
-                    basis.append( max(s1, s2) )
-
-                # add the z-basis
-                basis.append(0.0)
-                assert len(basis) == 3
-                basis = tuple(basis)
-
-                # assemble the grid_tuple
-                shape = (x_spacing, y_spacing, 1)
-
-                corner = ( xa.flatten()[np.argmin(xa)], 
-                           ya.flatten()[np.argmin(ya)], 
-                           za[0,0] )
-
-                grid_tuple = (basis, shape, corner)
-                grid_list.append(grid_tuple)
-
-                # store the flatten-ed intensities in the correct order
-                spacing = x_spacing * y_spacing
-                start  = spacing * (ix + iy*x_asics)
-                finish = spacing * (ix + iy*x_asics + 1)
-                flat_intensities[start:finish] = ia.flatten()
-
-        assert len(grid_list) == x_asics * y_asics
-
-        return grid_list, flat_intensities
-        
-                
-        
-class CXI(object):
-    """
-    A parser for the coherent x-ray imaging file format.
-    
-    This format is the standard for LCLS experiments; details can be found here:
-    
-        http://cxidb.org/
-    
-    This class parses the file and serves an odin.xray.Shotset, along with some
-    additional metadata associated with the run.
-    
-    Initilization Parameters
-    ------------------------
-    filename : str
-        The HDF5 file path.
-    """
-    
-    def __init__(self, filename):
-        
-        # EEEK
-        raise NotImplementedError('CXI parser not complete, sorry')
-        
-        self.filename = filename
-        self._get_root()
-        
-        self.shots = []
-        for entry_group in self._get_groups('entry'):
-            self.shots.append( self._generate_shot_from_entry(entry_group) )
-            
-        self.shotset = xray.Shotset( self.shots )
-        
-        
-    def _get_root(self):
-        h5 = tables.openFile(self.filename, mode='r')
-        self.h5 = h5
-        self.root = self.h5.root
-        
-        
-    def _get_groups(self, name, root='/'):
-        """
-        Locates groups in the HDF5 file structure, beneath `root`, with name
-        matching `name`.
-        
-        Returns
-        -------
-        groups : list
-            A list of pytables group objects
-        """
-        groups = []
-        for g in self.h5.walkGroups(root):                
-            gname = g.__str__().split('/')[-1].split()[0]
-            if gname.find(name) == 0:
-                groups.append(g)
-        return groups
-            
-            
-    def _get_nodes(self, name, root='/', strict=False):
-        """
-        Locates nodes in the HDF5 file structure, beneath `root`, with name
-        matching `name`.
-
-        Returns
-        -------
-        nodes : list
-            A list of pytables nodes objects
-        """
-        nodes = []
-        for n in self.h5.walkNodes(root):                
-            nname = n.__str__().split('/')[-1].split()[0]
-            if not isinstance(n, tables.link.SoftLink):
-                if strict:
-                    if nname == name:
-                        nodes.append(n)
-                else:
-                    if nname.find(name) == 0:
-                        nodes.append(n)
-        return nodes
-        
-                    
-    def _extract_energy(self, entry):
-        """
-        Scrape the following important metadata out of the .cxi file:
-        -- beam energy
-        -- 
-        """
-        energy_nodes = self._get_nodes('energy', root=entry, strict=True)
-        if len(energy_nodes) > 1:
-            raise RuntimeError('Ambiguity in beam energy... %d energy nodes found' % len(energy_nodes))
-        energy = float(energy_nodes[0].read()) / 1000.0
-        beam = xray.Beam(1., energy=energy) # todo: compute flux
-        return beam
-        
-	    
-    def _detector_group_to_array(self, detector_group):
-        """
-        Generate an array of the xyz coordinates of the pixels using the rules 
-        implicit in the CXI format.
-
-        Parameters
-        ----------
-        size : tuple
-            (number_x_pixels, number_y_pixels)
-        x_basis, y_basis : float
-            The size of the pixels in the x/y direction
-    
-        Returns
-        -------
-        xyz : ndarray, float
-            An n x 3 array of the pixel positions.
-        intensities : ndarray, float
-            An n-len array of the intensities at each pixel
-        metadata : dict
-            A dictionary of any extra metadata extracted from the detector 
-            group object
-        """
-
-        metadata = {}
-        # ----- todo TJL not sure if these are in all CXI files? ---------
-        #       put them --> metadata
-        #is_fft_shifted = bool(detector_group.is_fft_shifted.read())
-        #image_center = detector_group.image_center.read()
-        #path_length = float(detector_group.distance.read())
-        #mask = detector_group.mask.read()
-        # ----------------------------------------------------------------
-
-        # sometimes the intensities are not underneath the detector instance,
-        # so we have to check where they are...
-        if hasattr(detector_group, 'data'):
-            intensities = np.real( detector_group.data.read() )
-        else:
-            data_nodes = self._get_nodes('data', strict=True)
-            if len(data_nodes) > 1:
-                # if we're here, we can't uniquely associate a 'data' entry with
-                #  the detector pixel positions...
-                raise RuntimeError('Ambiguous location of intensities in CXI '
-                                    'file... cannot proceed.')
-            else:
-                intensities = np.real( data_nodes[0].read() )
-        
-        # the intensities come out in a 2-D array -- we'll want them flatttened
-        size = intensities.shape
-        intensities = intensities.flatten()
-
-        x_pixel_size = float(detector_group.x_pixel_size.read())
-        y_pixel_size = float(detector_group.y_pixel_size.read())
-
-        # try to find basis vectors for pixel positions
-        # if none exist, convention is to use the pixel sizes
-        # TJL todo CHECK THE NAMES BELOW!!!
-        if hasattr(detector_group, 'x_basis'):
-            x_basis = float(detector_group.x_basis.read())
-        else:
-            x_basis = x_pixel_size
-        if hasattr(detector_group, 'y_basis'):
-            y_basis = float(detector_group.y_basis.read())
-        else:
-            y_basis = y_pixel_size
-
-        x_pixels = np.arange(0, x_basis*size[0], x_basis)
-        y_pixels = np.arange(0, y_basis*size[1], y_basis)
-        assert len(x_pixels) == size[0]
-        assert len(y_pixels) == size[1]
-
-        z = np.zeros( len(x_pixels) * len(y_pixels) )
-        x, y = np.meshgrid(x_pixels, y_pixels)
-        x = x.flatten()
-        y = y.flatten()
-
-        xyz = np.vstack((x, y, z)).transpose()
-
-        # if there is a 'corner_position' attr, translate
-        if hasattr(detector_group, 'corner_position'):
-            xyz += detector_group.corner_position.read()
-
-        return xyz, intensities, metadata
-        
-        
-    def _generate_shot_from_entry(self, entry):
-
-        # loop over all the detector elements and piece them together
-        xyz = []
-        intensities = []
-        metadatas = []
-        for detector_group in self._get_groups('detector', root=entry):
-            x, i, m = self._detector_group_to_array(detector_group)
-            xyz.append(x)
-            intensities.append(i)
-            metadatas.append(m)
-        
-        xyz = np.concatenate(xyz)
-        intensities = np.concatenate(intensities)
-
-        # instantitate a detector
-        # todo NEED: logic for path_length
-        path_length = 1.0
-        beam = self._extract_energy(entry)
-        d = xray.Detector(xyz, path_length, beam.k)
-
-        # generate a shot instance and add it to our list
-        return xray.Shot(intensities, d)
-        
-        
-class CheetahCXI(object):
-    """
-    A parser for the CXIdb files generated by cheetah at LCLS.
+    Base class for CXIdb file objects. Will likely need to be subclassed to be
+    useful in any real-world context.
     """
 
     def __init__(self, filename):
@@ -992,7 +499,52 @@ class CheetahCXI(object):
         self._fhandle.close()
         return
     
+        def _get_groups(self, name, root='/'):
+            """
+            Locates groups in the HDF5 file structure, beneath `root`, with name
+            matching `name`.
 
+            Returns
+            -------
+            groups : list
+                A list of pytables group objects
+            """
+            groups = []
+            for g in self._fhandle.walkGroups(root):                
+                gname = g.__str__().split('/')[-1].split()[0]
+                if gname.find(name) == 0:
+                    groups.append(g)
+            return groups
+
+
+    def _get_nodes(self, name, root='/', strict=False):
+        """
+        Locates nodes in the HDF5 file structure, beneath `root`, with name
+        matching `name`.
+
+        Returns
+        -------
+        nodes : list
+            A list of pytables nodes objects
+        """
+        nodes = []
+        for n in self._fhandle.walkNodes(root):                
+            nname = n.__str__().split('/')[-1].split()[0]
+            if not isinstance(n, tables.link.SoftLink):
+                if strict:
+                    if nname == name:
+                        nodes.append(n)
+                else:
+                    if nname.find(name) == 0:
+                        nodes.append(n)
+        return nodes
+
+
+class CheetahCXI(CXIdb):
+    """
+    A parser for the CXIdb files generated by cheetah at LCLS.
+    """
+    
     @property
     def num_shots(self):
         return self._ds1_data.shape[0]
@@ -1070,7 +622,7 @@ class CheetahCXI(object):
         """
         Return an iterable that enables looping over shot data on disk. This
         object lets python access shots one at a time without loading all of
-        them into memory
+        them into memory. Yields data in Odin format!
 
         Parameters
         ----------
@@ -1088,48 +640,7 @@ class CheetahCXI(object):
         else:
             raise NotImplementedError('only ds1 support in right now')
     
-
-    def _get_groups(self, name, root='/'):
-        """
-        Locates groups in the HDF5 file structure, beneath `root`, with name
-        matching `name`.
-
-        Returns
-        -------
-        groups : list
-            A list of pytables group objects
-        """
-        groups = []
-        for g in self._fhandle.walkGroups(root):                
-            gname = g.__str__().split('/')[-1].split()[0]
-            if gname.find(name) == 0:
-                groups.append(g)
-        return groups
     
-
-    def _get_nodes(self, name, root='/', strict=False):
-        """
-        Locates nodes in the HDF5 file structure, beneath `root`, with name
-        matching `name`.
-
-        Returns
-        -------
-        nodes : list
-            A list of pytables nodes objects
-        """
-        nodes = []
-        for n in self._fhandle.walkNodes(root):                
-            nname = n.__str__().split('/')[-1].split()[0]
-            if not isinstance(n, tables.link.SoftLink):
-                if strict:
-                    if nname == name:
-                        nodes.append(n)
-                else:
-                    if nname.find(name) == 0:
-                        nodes.append(n)
-        return nodes
-    
-
     @staticmethod
     def cheetah_instensities_to_odin(intensities):
         """
@@ -1164,7 +675,7 @@ class CheetahCXI(object):
                 y_stop  = 185 * (twoXone + 1)
             
                 # each sec is a ASIC, both belong to the same 2x1
-                sec1, sec2 = np.hsplit(raw_image[y_start:y_stop,x_start:x_stop], 2)
+                sec1, sec2 = np.hsplit(intensities[y_start:y_stop,x_start:x_stop], 2)
             
                 # inject them into the Odin array
                 n_ASIC_pixels = 185 * 194
