@@ -2066,7 +2066,7 @@ class Rings(object):
 
     @property
     def num_phi(self):
-        return self.polar_intensities.shape[2]
+        return self._polar_intensities.shape[2]
 
 
     @property

@@ -590,10 +590,10 @@ class TestRings(object):
         assert self.rings.num_shots == self.num_shots
         
     def test_phi_values(self):
-        assert len(self.phi_values) == self.num_phi
+        assert len(self.rings.phi_values) == self.num_phi
     
     def test_q_values(self):
-        assert self.rings.q_values == self.q_values
+        assert np.all(self.rings.q_values == self.q_values)
     
     def test_num_phi(self):
         assert self.rings.num_phi == self.num_phi
