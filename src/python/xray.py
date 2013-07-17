@@ -929,7 +929,7 @@ class Shotset(object):
             
         filters : list
             A list of callables that will get applied to the intensity data
-            whenever it is accessed. Use with caution.
+            whenever it is accessed.
         """
         
         # initialize some internals
@@ -1890,7 +1890,8 @@ class Rings(object):
     Class to keep track of intensity data in a polar space.
     """
 
-    def __init__(self, q_values, polar_intensities, k, polar_mask=None):
+    def __init__(self, q_values, polar_intensities, k, polar_mask=None,
+                 filters=[]):
         """
         Interpolate our cartesian-based measurements into a polar coordiante
         system.
@@ -1911,12 +1912,29 @@ class Rings(object):
         k : float
             The wavenumber of the energy used to acquire the data.
 
+        Optional Parameters
+        -------------------
         polar_mask : ndarray, bool
             A mask of ones and zeros. Ones are kept, zeros masked. Should be the
             same shape as `polar_intensities`, but LESS THE FRIST DIMENSION.
             That is, the polar mask is the same for all shots. Can also be
             `None`, meaning no masked pixels
+            
+        filters : list
+            A list of callables that will get applied to the intensity data
+            whenever it is accessed.
         """
+        
+        # initialize some internals
+        self._intensity_filters = []
+        if not utils.is_iterable(filters):
+            raise TypeError('`filters` argument must be iterable')
+        elif len(filters) > 0:
+            for flt in filters:
+                self._add_intensity_filter(flt)
+        else:
+            pass
+            
 
         # this should *not* be an elif
         if type(polar_intensities) == np.ndarray:
@@ -1973,15 +1991,17 @@ class Rings(object):
 
     @property
     def polar_intensities(self):
-        if self._polar_intensities_type == 'array':
-            pi_data = self._polar_intensities
-        elif self._polar_intensities_type == 'tables':
-            try:
-                pi_data = self._polar_intensities.read()
-            except MemoryError as e:
-                logger.critical(e)
-                raise MemoryError('insufficient memory to load intensity data')
-        return pi_data
+        try:
+            i_data = np.zeros((self.num_shots, self.num_q, self.num_phi))
+        except MemoryError as e:
+            logger.critical(e)
+            raise MemoryError('Insufficient memory to complete operation.'
+                              ' Work with Shotset.intensities_iter().')
+                              
+        for i, itx in enumerate(self.polar_intensities_iter):
+            i_data[i,:] = itx
+        
+        return i_data
     
         
     @property
@@ -1991,7 +2011,42 @@ class Rings(object):
         elif self._polar_intensities_type == 'tables':
             pi_iter = self._polar_intensities.iterrows()
             pi_iter.nrow = -1 # reset the iterator to the start
-        return pi_iter
+            
+        # yield the filtered result
+        for x in pi_iter:
+            yield self._filter_intensities(x)
+            
+            
+    def _filter_intensities(self, intensities):
+        """
+        Apply any filters in self._intensity_filters to the intensity data
+        and return the modified intensities.
+
+        Parameters
+        ----------
+        intensities : np.ndarray
+            The intensities to filter.
+
+        Returns
+        -------
+        intensities : np.ndarray
+            The filtered intensities
+        """
+        if len(self._intensity_filters) > 0:
+            for flt in self._intensity_filters:
+                intensities = flt(intensities)
+        return intensities
+
+
+    def _add_intensity_filter(self, flt):
+        """
+        Append a filter to the list of filters to apply to the intensity data.
+        """
+        if not hasattr(flt, '__call__'):
+            raise TypeError('`flt` filter must be callable')
+        else:
+            self._intensity_filters.append(flt)
+        return
     
 
     @property
@@ -2085,35 +2140,6 @@ class Rings(object):
         return int(q_ind)
 
 
-    # this won't function with the new iterable types -- do we need it? --TJL
-    # also there is ***no test*** for this method
-    # def _normalize_intensities(self):
-    #     """
-    #     Normalizes the intensities of each ring/shot by the average value around
-    #     the ring.
-    #     """
-    #     
-    #     logger.warning('Normalizing rings discards information about the '
-    #                    'relative ring intensities... be sure you want to do this.')
-    #     
-    #     I      = self.polar_intensities
-    #     mask   = self.polar_mask
-    #      
-    #     # give each shot unit mean 
-    #     I_mean = np.sum( I * mask, axis=2 ) / np.sum( mask,axis=1)
-    #     I /= I_mean[:,:,None]
-    #     
-    #     # divide each polar pixel by its mean across the shot set, normalzes out some detector artifacts
-    #     I_mean = np.sum( I*mask, axis=0 ) / self.num_shots
-    #     I /= I_mean
-    # 
-    #     # this results in NaNs and Infs, so we have to kill those
-    #     I = np.nan_to_num( I )
-    #     I[ np.isinf(I) ] = 0.0
-    #     
-    #     return
-
-
     def depolarize(self, xaxis_polarization):
         """
         Applies a polarization correction to the rings.
@@ -2149,72 +2175,6 @@ class Rings(object):
             pi[:,:] *= correctn[:,:]
 
         return
-        
-       
-    # TJL commented the below until it recieves a unit test
-    # it needs to change to accomodate the new polar_intensities as well
-    
-    # def smooth_intensities(self, q, beta=10.0, window_size=11, copy=True):
-    #     """
-    #     Apply an intensity smoothing function to a Rings object.
-    # 
-    #     Parameters
-    #     ----------
-    #     q : float or array like
-    #         q position where the smoothing should be applied. If array like, then
-    #         smoothing will be applied to all listed q values.  
-    # 
-    #     Optional Parameters
-    #     -------------------
-    #     beta : float
-    #         Parameter controlling the strength of the smoothing -- bigger beta 
-    #         results in a smoother function.
-    # 
-    #     window_size : int
-    #         The size of the Kaiser window to apply, i.e. the number of neighboring
-    #         points used in the smoothing.
-    # 
-    #     copy: bool
-    #         Whether or not to modify current ring or produce a new copied version.
-    # 
-    #     Returns
-    #     -------
-    #     ring or new_ring : Rings object
-    #         An odin Rings object
-    #     """
-    #     
-    #     raise NotImplementedError('not updated for new rings data storage')
-    # 
-    #     if type(q) == float:
-    #         qs = [q]
-    # 
-    #     if copy == True:
-    # 
-    #         rp = np.copy( self.polar_intensities )
-    #         n_shot = rp.shape[0]
-    # 
-    #         for q in qs :
-    #             i_q = self.q_index( q )
-    #             for i_shot in xrange( n_shot ) :
-    #                 rp[ i_shot, i_q ] = utils.smooth(rp[ i_shot, i_q ], beta, window_size)
-    # 
-    #         new_ring = Rings(self.q_values, rp, self.k, self.polar_mask)
-    # 
-    #         return new_ring
-    # 
-    #     if copy == False:
-    # 
-    #         rp = self.polar_intensities 
-    #         n_shot = rp.shape[0]
-    # 
-    #         for q in qs:
-    #             i_q = self.q_index( q )
-    #             for i_shot in xrange( n_shot ) :
-    #                 rp[ i_shot, i_q ] = utils.smooth( rp[ i_shot, i_q ], beta, window_size )
-    # 
-    #         ring = Rings(self.q_values, rp, self.k, self.polar_mask)
-    # 
-    #         return ring
     
 
     def intensity_profile(self):
@@ -2230,16 +2190,14 @@ class Rings(object):
 
         intensity_profile      = np.zeros( (self.num_q, 2), dtype=np.float )
         intensity_profile[:,0] = self._q_values.copy()
-        
-        intensities_mean = np.mean(self._polar_intensities, axis=0)
 
         # average over shots, phi
-        if self.polar_mask != None:
-            ip = np.mean(intensities_mean * self.polar_mask.astype(np.float), axis=1)
-        else:
-            ip = np.mean(intensities_mean, axis=1)
-
-        intensity_profile[:,1] = ip
+        for pi_x in self.polar_intensities_iter:
+            if self.polar_mask != None:
+                pi_x *= self.polar_mask.astype(np.float)
+            intensity_profile[:,1] += np.mean(pi_x, axis=1)
+            
+        intensity_profile[:,1] /= float(self.num_shots)
 
         return intensity_profile
 

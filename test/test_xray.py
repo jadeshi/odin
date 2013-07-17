@@ -259,6 +259,16 @@ class TestShotset(object):
         s = xray.Shotset(self.i, self.d, mask=mask)
         s.interpolate_to_polar(q_values, self.num_phi)
         
+    def test_filters(self):
+        # to do : work out a better test
+
+        def test_filter(i):
+            return np.zeros_like(i)
+
+        self.shot._add_intensity_filter(test_filter)
+        ip = self.shot.intensity_profile()[:,1]
+        assert_allclose( np.zeros_like(ip), ip )
+        
     def test_num_shots(self):
         assert self.shot.num_shots == self.num_shots
         
@@ -566,12 +576,24 @@ class TestRings(object):
         print "n / num_shots", n, self.num_shots
         assert n == self.num_shots
         
+    def test_filters(self):
+        # to do : work out a better test
+        
+        def test_filter(i):
+            return np.zeros_like(i)
+        
+        self.rings._add_intensity_filter(test_filter)
+        assert_allclose( np.zeros(self.rings.num_q), 
+                         self.rings.intensity_profile()[:,1] )
+        
     def test_num_shots(self):
         assert self.rings.num_shots == self.num_shots
         
-    # missing test : phi_values
+    def test_phi_values(self):
+        assert len(self.phi_values) == self.num_phi
     
-    # missing test : q_values
+    def test_q_values(self):
+        assert self.rings.q_values == self.q_values
     
     def test_num_phi(self):
         assert self.rings.num_phi == self.num_phi
@@ -624,9 +646,6 @@ class TestRings(object):
         self.rings.depolarize(xaxis_polarization)
         ip = self.rings.polar_intensities
         assert_allclose(ip / ip[None,None,0], ref_i / ref_i[None,None,0])
-        
-    # def test_smooth_intensities(self):
-    #     raise NotImplementedError('need test')
 
     def test_intensity_profile(self):
         q_values = [2.4, 2.67, 3.0] # should be a peak at |q|=2.67
