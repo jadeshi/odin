@@ -1006,9 +1006,13 @@ class Shotset(object):
     
         
     def __del__(self):
-        if hasattr(self, '_hdf'):
-            if self._hdf:
-                self._hdf.close()
+        """
+        When class gets garbage collected, also close off all HDF5 handles.
+        """
+        if hasattr(self, '_file_handle'):
+            if hasattr(self._file_handle, 'close'):
+                logger.debug('Shotset.__del__ :: closing file handle')
+                self._file_handle.close()
         return
     
         
@@ -1039,7 +1043,7 @@ class Shotset(object):
                               ' Work with Shotset.intensities_iter().')
                               
         for i, itx in enumerate(self.intensities_iter):
-            i_data[i] = itx
+            i_data[i,:] = itx
         
         return i_data
             
@@ -1116,9 +1120,10 @@ class Shotset(object):
 
     @property
     def average_intensity(self):
-        # average should work for both iterable and array
-        avg = np.mean(self._intensities, axis=0)
-        assert avg.shape == (self.num_pixels,)
+        avg = np.zeros(self.num_pixels)
+        for itx in self.intensities_iter:
+            avg += itx
+        avg /= float(self.num_shots)
         return avg
     
 
@@ -1819,7 +1824,7 @@ class Shotset(object):
 
 
         ss = cls(intensities_handle, d, mask)
-        ss._hdf = hdf
+        ss._file_handle = hdf
 
         return ss
     
@@ -1873,6 +1878,9 @@ class Shotset(object):
         cxi = parse.CheetahCXI(filename)               
         ss = cls(cxi._ds1_data, dtc, m, 
                 filters=[parse.CheetahCXI.cheetah_instensities_to_odin])
+                
+        # save a handle to the file so it doesn't get garbage collected
+        ss._file_handle = cxi
         
         return ss
 
