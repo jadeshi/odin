@@ -39,14 +39,12 @@ class TestCBF(object):
         p = self.cbf.polarization
         assert p == 0.99
     
-    @skip
     def test_center(self):
         c = self.cbf.center
         ref = np.array([ 1264.63487097,  1231.26068894 ])
         #ref = np.array([ 1264.61906, 1231.24931508]) # this was using dermens algo
         assert_allclose(c, ref, rtol=1e-03)
     
-    @skip
     def test_corner(self):
         c = self.cbf.corner
         x = self.cbf.pixel_size
