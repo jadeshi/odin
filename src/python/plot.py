@@ -118,3 +118,31 @@ class InteractiveImshow(object):
         self.colbar = plt.colorbar(self.im, pad=0.01)
         self.orglims = self.im.get_clim()
         
+
+def plot_polar_intensities(shot, output_file=None):
+    """
+    Plot an intensity map in polar coordinates.
+
+    Parameters
+    ----------
+    shot : odin.xray.Shot
+        A shot to plot.
+    output_file : str
+        The filename to write. If `None`, will display the image on screen and
+        not save.
+    """
+
+    pi = shot.polar_grid
+
+    colors = shot.polar_intensities # color by intensity
+    ax = plt.subplot(111, polar=True)
+    c = plt.scatter(pi[:,1], pi[:,0], c=colors, cmap=cm.hsv)
+    c.set_alpha(0.75)
+
+    if output_file:
+        plt.savefig(output_file)
+        logger.info("Saved: %s" % output_file)
+    else:
+        plt.show()
+
+    return
