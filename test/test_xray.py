@@ -340,8 +340,6 @@ class TestShotset(object):
 
     @skip
     def test_interpolation_consistency(self):
-        # TJL warning: these methods are working, but this test is *weak*
-        #              I am not sure why turning up the tol causes fails :(
         q_values = np.array([2.0, 4.0])
         de = xray.Detector.generic(spacing=0.4, force_explicit=True)
         s1 = xray.Shotset(self.i, self.d)
@@ -350,9 +348,15 @@ class TestShotset(object):
         p2, m2 = s2.interpolate_to_polar(q_values, self.num_phi)
         p1 /= p1.max()
         p2 /= p2.max()
+        
+        # import matplotlib.pyplot as plt
+        # plt.figure()
+        # plt.plot(p1[0,0,1:].flatten())
+        # plt.plot(p2[0,0,1:].flatten())
+        # plt.show()
+        
         assert_allclose(p1[0,0,1:].flatten(), p2[0,0,1:].flatten(), err_msg='interp intensities dont match',
                         rtol=1.0, atol=0.5)
-        #assert_allclose(m1[:,1:], m2[:,1:], err_msg='polar masks dont match')
         
     def test_multi_panel_interp(self):
         # regression test ensuring detectors w/multiple basisgrid panels
@@ -468,6 +472,28 @@ class TestShotset(object):
         print x
         assert x < 0.2 # intensity mismatch
         assert_allclose(rings_ip[:,0], shot_ip[:,0], err_msg='test impl error')
+        
+    def test_polar_mask_conversion(self):
+
+        # make a real mask that is a circle, and then it should be easy to check
+        # that the polar mask is correct
+        
+        q_cutoff_index = 5
+        q_values = np.arange(3.5, 4.5, 0.1)
+        q_cutoff = q_values[q_cutoff_index]
+        
+        rm = np.ones(self.d.num_pixels, dtype=np.bool)
+        rm[self.d.recpolar[:,0] < q_cutoff] = np.bool(False)
+        
+        shot = xray.Shotset(self.i, self.d, mask=rm)
+        r = shot.to_rings(q_values)
+        
+        ref_pm = np.ones((len(q_values), r.num_phi), dtype=np.bool)
+        ref_pm[:q_cutoff_index+1,:] = np.bool(False)
+        
+        print "num px masked", ref_pm.sum(), r.polar_mask.sum()
+        assert ref_pm.sum() == r.polar_mask.sum() # same num px masked
+        assert_array_equal(ref_pm, r.polar_mask)
 
     def test_to_rings_on_disk(self):
         # this test uses the Rings `rings_filename` flag

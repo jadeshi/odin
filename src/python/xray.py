@@ -1356,12 +1356,10 @@ class Shotset(object):
                 int_start += n_int # increment
                 continue
                 
-            # unmask points that we have data for
-            polar_mask[intersect] = np.bool(True)
-
             # next, mask any points that should be masked by the real mask
             if self.mask == None:
-                pass # if we have no work to do, skip this step...
+                # unmask points that we have data for
+                polar_mask[intersect] = np.bool(True)
             else:
 
                 # to get the bicubic interpolation right, need to mask 16-px box
@@ -1645,7 +1643,7 @@ class Shotset(object):
             # polar_intensities_output=None automatically generates an array for
             # the output downstream
             pi, pm = self.interpolate_to_polar(q_values, num_phi)
-            rings_obj = Rings(q_values, pi, self.detector.k, pm)
+            rings_obj = Rings(q_values, pi, self.detector.k, polar_mask=pm)
             ret_val = rings_obj
             
             
