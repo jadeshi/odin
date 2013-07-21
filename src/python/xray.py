@@ -7,7 +7,7 @@ Classes, methods, functions for use with xray scattering experiments.
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
-logger.setLevel('DEBUG')
+#logger.setLevel('DEBUG')
 
 import os
 import cPickle
@@ -1393,7 +1393,7 @@ class Shotset(object):
             int_start  = 0 # start of intensity array correpsonding to `grid`
             int_end    = 0 # end of intensity array correpsonding to `grid`
             
-            logger.debug('interpolating shot %d' % (shot+1,)) # , self.num_shots))
+            logger.info('interpolating shot %d/%d' % (shot+1, self.num_shots))
             shot_pi = np.zeros(num_q * num_phi)
             
             for g in range(self.detector._basis_grid.num_grids):
@@ -2226,7 +2226,7 @@ class Rings(object):
             Either the average correlation, or every correlation as a 2d array
         """
 
-        logger.debug("Correlating rings at %f / %f" % (q1, q2))
+        logger.info("Correlating rings at %f / %f" % (q1, q2))
 
         q_ind1 = self.q_index(q1)
         q_ind2 = self.q_index(q2)
@@ -2254,6 +2254,8 @@ class Rings(object):
             var2 = 0.0
         
         for i,pi in enumerate(self.polar_intensities_iter):
+
+            logger.info('Correlating shot %d/%d' % (i+1, num_shots))
             
             rings1 = pi[q_ind1,:]
             rings2 = pi[q_ind2,:]
@@ -2307,7 +2309,7 @@ class Rings(object):
             Either the average correlation, or every correlation as a 2d array
         """
 
-        logger.debug("Correlating rings at %f / %f" % (q1, q2))
+        logger.info("Correlating rings at %f / %f" % (q1, q2))
 
         q_ind1 = self.q_index(q1)
         q_ind2 = self.q_index(q2)
@@ -2339,7 +2341,9 @@ class Rings(object):
             var1 = 0.0
             var2 = 0.0
         
-        for i,j in inter_pairs:
+        for k,(i,j) in enumerate(inter_pairs):
+            
+            logger.info('Correlating intra %d/%d' % (i+1, num_pairs))
             
             if self._polar_intensities_type == 'array':
                 rings1 = self._polar_intensities[i,q_ind1,:]
