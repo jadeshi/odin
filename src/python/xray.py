@@ -1419,7 +1419,9 @@ class Shotset(object):
                     # points to interpolate onto (pix_n)
                     
                     sqI = intensities[int_start:int_end].reshape(size[0], size[1])
-                    shot_pi[intersect] = interpolation.map_coordinates(sqI, pix_n.T, order=3)
+                    shot_pi[intersect] = interpolation.map_coordinates(sqI, pix_n.T, 
+                                                                       order=3,
+                                                                       mode='nearest')
             
                 int_start += n_int
             
@@ -2279,8 +2281,8 @@ class Rings(object):
             
         if normed:
             intra /= np.sqrt( var1 * var2 / np.square(float(num_shots)) )
-            assert intra.max() <=  1.1
-            assert intra.min() >= -1.1
+            #assert intra.max() <=  1.1
+            #assert intra.min() >= -1.1
         
         return intra
     
@@ -2328,7 +2330,7 @@ class Rings(object):
         if mean_only:
             inter = np.zeros(self.num_phi)
         else:
-            inter = np.zeros((num_shots, self.num_phi))
+            inter = np.zeros((num_pairs, self.num_phi))
 
         # Check if mask exists
         if self.polar_mask != None:
@@ -2375,8 +2377,8 @@ class Rings(object):
             
         if normed:
             inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
-            assert inter.max() <=  1.0
-            assert inter.min() >= -1.0
+            #assert inter.max() <=  1.0
+            #assert inter.min() >= -1.0
 
         return inter
         
