@@ -2427,6 +2427,58 @@ class Rings(object):
             ring = Rings ( self.q_values, rp, self.k, self.polar_mask )
 
             return ring
+            
+    def reduce_rings ( self, factor  ):
+        """ reduce self.num_phi by factor; WARNING: removes the mask; must make a new one """
+        if self.num_phi % factor != 0:
+            raise NotImplementedError( 'As of now, *factor* must be a multiple of *self.num_phi*' )
+        rp = np.copy( self.polar_intensities)
+        new_rp = np.zeros(( rp.shape[0], rp.shape[1],rp.shape[2] / factor ) ) 
+        # convolve algor. taken from stack overflow
+        for q in self.q_values:
+            for i in xrange( rp.shape[0] ) :
+                d = rp[ i,self.q_index(q),:] 
+                d = np.convolve( d + [d[-1]], [1./factor]*factor,mode='valid'  )[::factor]
+                new_rp[i,self.q_index(q),:] = d
+        
+        return Rings( self.q_values, new_rp, self.k ) 
+  
+    def filter_rings ( self, std, q ):
+        """mask pixels that are std standard deviations below the average"""
+        i_q = self.q_index( q )
+        rp = self.polar_intensities
+        rpm = rp[:,i_q,:].mean(1)
+        rpstd = rp[:,i_q,:].std(1)
+        for i in xrange( self.num_shots ):
+            rp[i,i_q][ rp[i,i_q]  < rpm[i] - std * rpstd[i] ] = 0
+        
+    
+    def make_dif_rings ( self,num_dif=0 ):
+        """ makes all possible difference rings"""
+        rp =  self.polar_intensities
+        N = rp.shape[0]
+        if num_dif == 0:
+            num_dif = N*(N-1) / 2
+            new_rp = np.zeros( ( num_dif, rp.shape[1], rp.shape[2] ) )
+            for q in self.q_values:
+                n = 0
+                i_q = self.q_index( q )
+                for i in xrange( N ) :
+                    for j in xrange( i+1, N ):
+                        new_rp[n, i_q, : ] = rp[i,i_q,:] - rp[j,i_q, :]
+                        n += 1
+        else:
+            new_rp = np.zeros( ( num_dif, rp.shape[1], rp.shape[2] ) )
+            inter_pairs = random_pairs(self.num_shots, num_dif )
+            for q in self.q_values:
+                n = 0
+                i_q = self.q_index( q )
+                for i,j in inter_pairs:
+                    new_rp[n, i_q, : ] = rp[i,i_q,:] - rp[j,i_q, :]
+                    n += 1
+        
+        return Rings( self.q_values, new_rp, self.k, self.polar_mask )
+
 
 
 def _q_grid_as_xyz(q_values, num_phi, k):
