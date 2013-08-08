@@ -346,7 +346,7 @@ class TestShotset(object):
 
     def test_sim(self):
         if not GPU: raise SkipTest
-        shot = xray.Shotset.simulate(self.t, 512, self.d)
+        shot = xray.Shotset.simulate(self.t, self.d, 512, 1)
 
     def test_simulate_cpu_only(self):
         d = xray.Detector.generic(spacing=0.6)
