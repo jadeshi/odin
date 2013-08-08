@@ -1005,13 +1005,13 @@ class Shotset(object):
         return
     
         
-    def __del__(self):
+    def close(self):
         """
         When class gets garbage collected, also close off all HDF5 handles.
         """
         if hasattr(self, '_file_handle'):
             if hasattr(self._file_handle, 'close'):
-                logger.debug('Shotset.__del__ :: closing file handle')
+                logger.debug('Shotset.close :: closing file handle')
                 self._file_handle.close()
         return
     
@@ -1968,7 +1968,7 @@ class Rings(object):
         return
     
         
-    def __del__(self):
+    def close(self):
         if hasattr(self, '_hdf'):
             if self._hdf:
                 self._hdf.close()
