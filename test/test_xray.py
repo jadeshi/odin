@@ -68,8 +68,8 @@ class TestBasisGrid(object):
     def test_grid_corners(self):
         c = self.bg.get_grid_corners(0)
         assert_array_almost_equal(c[0,:], self.p)
-        assert_array_almost_equal(c[2,:], np.array([1.0*10, 0.0, 1.0])) # slow
-        assert_array_almost_equal(c[1,:], np.array([0.0, 2.0*10, 1.0])) # fast
+        assert_array_almost_equal(c[1,:], np.array([1.0*10, 0.0, 1.0])) # slow
+        assert_array_almost_equal(c[2,:], np.array([0.0, 2.0*10, 1.0])) # fast
         assert_array_almost_equal(c[3,:], np.array([1.0*10, 2.0*10, 1.0]))
 
     def test_get_grid(self):

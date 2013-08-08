@@ -2093,7 +2093,7 @@ class Rings(object):
         -------
         cospsi : ndarray, float
             The cosine of psi, the angle between the scattering vectors.
-        """q_index
+        """
         
         t1     = np.pi/2. + np.arcsin( q1 / (2.*self.k) ) # theta 1 in spherical coor
         t2     = np.pi/2. + np.arcsin( q2 / (2.*self.k) ) # theta 2 in spherical coor
