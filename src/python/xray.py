@@ -340,8 +340,8 @@ class BasisGrid(object):
                              ' (zero indexed)' % (self.num_grids, grid_number))
 
         # compute the lengths of the parallelogram sides
-        s_side = self._fs[grid_number] * float(self._shapes[grid_number][0])
-        f_side = self._ss[grid_number] * float(self._shapes[grid_number][1])
+        s_side = self._ss[grid_number] * float(self._shapes[grid_number][0])
+        f_side = self._fs[grid_number] * float(self._shapes[grid_number][1])
         pc = self._ps[grid_number].copy()
 
         corners = np.zeros((4,3))
