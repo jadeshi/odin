@@ -2077,12 +2077,10 @@ class Rings(object):
         return self.num_phi * self.num_q
     
         
-    def _cospsi(self, q1, q2):
+    def cospsi(self, q1, q2):
         """
         For each value if phi, compute the cosine of the angle between the
         reciprocal scattering vectors q1/q2 at angular separation phi.
-        
-        cos(psi) = f[phi, q1, q2]
         
         Parameters
         ----------
@@ -2093,9 +2091,7 @@ class Rings(object):
         -------
         cospsi : ndarray, float
             The cosine of psi, the angle between the scattering vectors.
-        """
-        
-        # this function was formerly: get_cos_psi_vals
+        """q_index
         
         t1     = np.pi/2. + np.arcsin( q1 / (2.*self.k) ) # theta 1 in spherical coor
         t2     = np.pi/2. + np.arcsin( q2 / (2.*self.k) ) # theta 2 in spherical coor
@@ -2476,37 +2472,6 @@ class Rings(object):
         return corr
     
 
-    def _convert_to_kam(self, q1, q2, corr):
-        """
-        Computes the angle between scattering vectors q1/q2 as a function of 
-        phi.
-
-        Parameters
-        ----------
-        q1,q2 : float, float
-            Inverse angstroms values of the intenisty rings
-        corr : ndarray,  float
-            Azimuathl correlation function of intensities along ring in q space
-
-        Returns
-        -------
-        kam_corr : ndarray, float
-            The Kam correlation function and the cos(psi) values
-        """
-        
-        if not len(corr.shape) == 1:
-            raise ValueError('`corr` must be a one-dimensional array')
-        
-        cos_psi  = self._cospsi(q1, q2)           # azimuathal to cos(psi)
-        #cosPsi  = np.append( cosPsi, -cosPsi )  # Adding the Friedel pairs...
-        #newCor  = np.append( corr, corr )       # C [cos(psi) ] = C [cos(-psi)]
-        
-        kam_corr = np.vstack((cos_psi, corr)).T
-        kam_corr = kam_corr[ np.argsort(kam_corr[:,0]) ] # sort ascending angle
-        
-        return kam_corr
-
-
     def legendre(self, q1, q2, order, use_inter_statistics=False):
         """
         Project the correlation functions onto a set of legendre polynomials,
@@ -2540,11 +2505,9 @@ class Rings(object):
                    self.correlate_inter(q1, q2, mean_only=True, num_pairs=self.num_shots)
         else:
             corr = self.correlate_intra(q1, q2, mean_only=True)
-        
-        corr = self._convert_to_kam(q1, q2, corr)
 
         # tests indicate this is a good numerical projection
-        c = np.polynomial.legendre.legfit(corr[:,0], corr[:,1], order-1)
+        c = np.polynomial.legendre.legfit(self.cospsi(q1, q2), corr, order-1)
         
         return c
 
