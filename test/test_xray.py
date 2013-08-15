@@ -637,7 +637,7 @@ class TestRings(object):
         assert self.rings.num_datapoints == self.num_phi * len(self.q_values)
 
     def test_cospsi(self):
-        cospsi = self.rings._cospsi(1.0, 1.0)
+        cospsi = self.rings.cospsi(1.0, 1.0)
         assert_allclose(cospsi[0], 1.0, rtol=0.01, err_msg='0 fail')
         theta_max = np.pi/2. + np.arcsin( 1.0 / (2.*self.rings.k) )
         assert_allclose(cospsi.min(), np.cos(2.0 * theta_max), rtol=0.01, err_msg='pi fail')
@@ -856,11 +856,11 @@ class TestRings(object):
 
         # make sure it matches up with the raw correlation
         ring = self.rings.correlate_intra(q1, q1, mean_only=True)
-        kam_ring = self.rings._convert_to_kam(q1, q1, ring)
+        #kam_ring = self.rings._convert_to_kam(q1, q1, ring)
         
         # reconstruct the correlation function
-        pred = np.polynomial.legendre.legval(kam_ring[:,0], cl)
-        assert_allclose(pred, kam_ring[:,1], rtol=0.1, atol=0.1)
+        pred = np.polynomial.legendre.legval(self.rings.cospsi(q1, q1), cl)
+        assert_allclose(pred, ring, rtol=0.1, atol=0.1)
 
     def test_io(self):
         if os.path.exists('test.ring'): os.remove('test.ring')
