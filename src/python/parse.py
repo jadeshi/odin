@@ -195,6 +195,11 @@ class CBF(SingleShotBase):
     
         
     @property
+    def num_pixels(self):
+        return np.product(self.intensities_shape)
+    
+        
+    @property
     def pixel_size(self):
         p = self._info['Pixel_size'].split()
         assert p[1].strip() == p[4].strip()
@@ -425,6 +430,8 @@ class CBF(SingleShotBase):
             The CBF file as an ODIN shotset.
         """
         
+        import xray # contained here to prevent circular imports
+        
         p = np.array(list(self.corner) + [self.path_length])
         f = np.array([self.pixel_size[0], 0.0, 0.0]) # fast is x
         s = np.array([0.0, self.pixel_size[1], 0.0]) # slow is y
@@ -437,123 +444,12 @@ class CBF(SingleShotBase):
         d = xray.Detector(bg, b.k)
         
         return d
-    # 
-    #     
-    # @classmethod
-    # def files_to_shotset(cls, list_of_cbf_files, shotset_filename=None,
-    #                      autocenter=True):
-    #     """
-    #     Convert a bunch of CBF files to a single ODIN shotset instance. If you 
-    #     write the shotset immediately to disk, does this in a smart "lazy" way 
-    #     so as to preseve memory.
-    #     
-    #     Parameters
-    #     ----------
-    #     list_of_cbf_files : list of str
-    #         A list of paths to CBF files to convert.
-    #     
-    #     Optional Parameters
-    #     -------------------
-    #     shotset_filename : str
-    #         The filename of the shotset to write to disk.
-    #         
-    #     autocenter : bool
-    #         Whether or not to automatically determine the center of the detector.
-    #         
-    #     Returns
-    #     -------
-    #     ss : odin.xray.Shotset
-    #         If `shotset_filename` is None, then returns the shotset object
-    #     """
-    #     
-    #     # convert one CBF, and use it to get the detector, etc info
-    #     seed_shot = cls(list_of_cbf_files[0], autocenter=autocenter).as_shotset()
-    #     
-    #     if shotset_filename:
-    #         logger.info('writing CBF files straight to disk at: %s' % shotset_filename)
-    #         
-    #         seed_shot.save(shotset_filename)
-    #         
-    #         # now open a handle to that h5 file and add to it
-    #         for i,fn in enumerate(list_of_cbf_files[1:]):
-    #              
-    #             # i+1 b/c we already saved one shot
-    #             d = {('shot%d' % (i+1,)) : cls(fn, autocenter=False).intensities.flatten()}
-    #             io.saveh( shotset_filename, **d )
-    #             
-    #         io.saveh( shotset_filename, num_shots=np.array([ len(list_of_cbf_files) ]) )
-    #         logger.info('Combined CBF data into: %s' % shotset_filename)
-    #         return
-    # 
-    #     else:
-    #         shot_i = np.zeros(( len(list_of_cbf_files), seed_shot.intensities.shape[1] ))
-    #         shot_i[0,:] = seed_shot.intensities.flatten()
-    #         
-    #         for i,fn in enumerate(list_of_cbf_files[1:]):
-    #             x = cls(fn, autocenter=False).intensities.flatten()
-    #             if not len(x) == shot_i.shape[1]:
-    #                 raise ValueError('Variable number of pixels in shots!')
-    #             shot_i[i+1,:] = x
-    #         
-    #         ss = xray.Shotset( shot_i, seed_shot.detector, seed_shot.mask )
-    # 
-    #         return ss
-    #         
-    #         
-    # @classmethod
-    # def files_to_rings(cls, list_of_cbf_files, q_values, num_phi,
-    #                    autocenter=True):
-    #     """
-    #     Convert a bunch of CBF files to a single ODIN rings instance.
-    # 
-    #     Parameters
-    #     ----------
-    #     list_of_cbf_files : list of str
-    #         A list of paths to CBF files to convert.
-    #         
-    #     q_values : ndarray, float
-    #         A one-D array containing the |q| values (in inverse Angstroms) that
-    #         you want to convert
-    # 
-    #     Optional Parameters
-    #     -------------------
-    #     num_phi : int
-    #         The number of points around each ring to interpolate.
-    #     
-    #     shotset_filename : str
-    #         The filename of the shotset to write to disk.
-    # 
-    #     autocenter : bool
-    #         Whether or not to automatically determine the center of the detector.
-    # 
-    #     Returns
-    #     -------
-    #     rings : odin.xray.Rings
-    #         If `rings_filename` is None, then returns the shotset object
-    #     """
-    #     
-    #     # save the center from one so we don't have to compute it for all
-    #     seed_cbf = cls(list_of_cbf_files[0], autocenter=autocenter)
-    #     center = seed_cbf.center.copy()
-    #     
-    #     
-    #     seed_ss = seed_cbf.as_shotset()
-    #     seed_ring = seed_ss.to_rings(q_values, num_phi=num_phi)
-    #     
-    #     
-    #     for cbf_file in list_of_cbf_files[1:]:
-    #         cbf = cls(cbf_file, autocenter=False)
-    #         cbf._center = center
-    #         ss = cbf.as_shotset()
-    #         r  = ss.to_rings(q_values, num_phi=num_phi)
-    #         seed_ring.append(r)
-    #         
-    # 
-    #     return seed_ring
+
     
 class EDF(SingleShotBase):
     
-    pass
+    def __init__(self):
+        raise NotImplementedError()
     
         
 class CXIdb(object):

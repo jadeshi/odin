@@ -956,11 +956,12 @@ class Shotset(object):
         # this should *not* be an elif
         if type(intensities) in [np.ndarray, 
                                  tables.earray.EArray,
-                                 tables.carray.CArray]:
+                                 tables.carray.CArray,
+                                 _FileIterator]:
             self._intensities = intensities
         else:
             raise TypeError('`intensities` must be type: {ndarray, EArray, '
-                            'CArray}. Got %s' % type(intensities))
+                            'CArray, _FileIterator}. Got %s' % type(intensities))
 
 
         # check that the data dimensions work out
@@ -1013,7 +1014,27 @@ class Shotset(object):
             if hasattr(self._file_handle, 'close'):
                 logger.debug('Shotset.close :: closing file handle')
                 self._file_handle.close()
+        if self._intensities_type == 'fileiterator':
+            self._intensities.close()
         return
+    
+        
+    @property
+    def _intensities_type(self):
+        """
+        Return what kind of intensities iterator we have
+        """
+        if type(self._intensities) == np.ndarray:
+            itype = 'array'
+        elif type(self._intensities) in [tables.earray.EArray,
+                                         tables.carray.CArray]:
+            itype = 'tables'
+        elif type(self._intensities) == _FileIterator:
+            itype = 'fileiterator'
+        else:
+            raise RuntimeError('invalid type in self._intensities')
+            
+        return itype
     
         
     @property
@@ -1054,12 +1075,14 @@ class Shotset(object):
         An python generator providing a method to iterate over intensity data
         stored on disk.
         """
-        if type(self._intensities) == np.ndarray:
+        if self._intensities_type == 'array':
             i_iter = self._intensities
-        elif type(self._intensities) in [tables.earray.EArray,
-                                         tables.carray.CArray]:
+        elif self._intensities_type == 'tables':
             i_iter = self._intensities.iterrows()
             i_iter.nrow = -1 # reset the iterator to the start
+        elif self._intensities_type == 'fileiterator':
+            i_iter = self._intensities.iterfiles()
+            self._intensities.current_file = 0 # reset the iterator to the start
         else:
             raise RuntimeError('invalid type in self._intensities')
             
@@ -1922,7 +1945,7 @@ class Shotset(object):
             The shotset object.
         """
         
-        understood_extensions = ['.cbf', '.edf']
+        understood_extensions = ['cbf', 'edf']
         
         # determine the filetype of the files
         extension = list_of_files[0].split('.')[-1]
@@ -1938,24 +1961,31 @@ class Shotset(object):
             # with the specific filetype. Those classes should be guarenteed
             # to implenent the consequent methods called
             
-            if extension == '.cbf':
+            if extension == 'cbf':
                 reader = parse.CBF
-            elif extension == '.edf':
+            elif extension == 'edf':
                 reader = parse.EDF
             else:
-                raise RuntimeError()
+                raise RuntimeError('internal consistency error: understood_extensions')
                 
                 
             logger.info('Converting %d files of type "%s" to a ShotSet...' % \
                         (len(list_of_files), extension))
+                        
+            # now comes the tricky part -- we need to construct an iterator
+            # that we can pass to Shotset that hides the fact that each file
+            # is an independent object on disk
+
+            fiter = _FileIterator(list_of_files, reader)
                 
             # convert one file to get access to metadata: detector, mask
-            seed_shot = reader(list_of_files[0])
+            # seed_shot = reader(list_of_files[0])
             
             if detector == None:
                 try:
-                    detector = seed_shot.detector
-                except:
+                    detector = fiter.seed_shot.detector
+                except Exception as e:
+                    logger.critical(e)
                     raise AttributeError('Cannot infer detector geometry from '
                                          'file metadata. File %s accessed with '
                                          'reader %s does not provide a detector'
@@ -1964,23 +1994,16 @@ class Shotset(object):
                                          ' an argument to `fromfiles`.'
                                          '' % (list_of_files[0], str(reader)) )
                      
-            if hasattr(seed_shot, 'mask'):
-                mask = np.logical_and(mask, seed_shot.mask)
-            
-            # now comes the tricky part -- we need to construct an iterator
-            # that we can pass to Shotset that hides the fact that each file
-            # is an independent object on disk
-            
-            
-            
-                
-                
-                    
+            if (hasattr(fiter.seed_shot, 'mask') and mask != None):
+                mask = np.logical_and(mask, fiter.seed_shot.mask)
+            else:
+                mask = fiter.seed_shot.mask.copy()
+ 
         else:
             raise IOError('Cannot understand files with extension: %s, can only'
                           ' read: %s' % (extension, str(understood_extensions)))
         
-        return ss
+        return cls(fiter, detector, mask)
 
 
 class Rings(object):
@@ -2903,18 +2926,27 @@ class _FileIterator(object):
             An object from odin.parse that can
         """
         
-        if not isinstance(reader, parse.SingleShotBase):
-            raise TypeError('`reader` must be an instance of SingleShotBase')
+        if not issubclass(reader, parse.SingleShotBase):
+            raise TypeError('`reader` must be an instance of SingleShotBase, got %s' % type(reader) )
             
         self.reader = reader
         self.files = list_of_files
         self.current_file = 0 # this is going to be the iterator state
+        
+        self.seed_shot = self.reader(self.files[0])
         
         return
     
     @property
     def num_files(self):
         return len(self.files)
+        
+    @property
+    def shape(self):
+        """
+        shots x pixels
+        """
+        return (self.num_files, self.seed_shot.num_pixels)
     
     def iterfiles(self):
         """
@@ -2924,6 +2956,14 @@ class _FileIterator(object):
             shot = self.reader(self.files[self.current_file])
             self.current_file += 1
             yield shot.intensities_1d
+            
+    def close(self):
+        if hasattr(fiter.seed_shot, 'close'):
+            try:
+                seed_shot.close()
+            except:
+                logger.debug('Failed to close seed shot.')
+        return
 
 
 def _q_grid_as_xyz(q_values, num_phi, k):

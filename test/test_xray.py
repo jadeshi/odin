@@ -536,7 +536,16 @@ class TestShotset(object):
         assert s.num_shots == 1
         if os.path.exists('test.shot'): os.remove('test.shot')
         
-    # missing test : load from cxi                          
+    # missing test : load from cxi
+    
+    def test_fromfiles(self):
+        ss = xray.Shotset.fromfiles( [ref_file('test_cbf.cbf'),
+                                      ref_file('test_cbf2.cbf')] )
+        assert ss.num_shots == 2
+        n = 0
+        for i in ss.intensities:
+            n += 1
+        assert ss.num_shots == n
         
         
 class TestShotsetFromDisk(TestShotset):
