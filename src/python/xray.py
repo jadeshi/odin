@@ -1883,6 +1883,104 @@ class Shotset(object):
         ss._file_handle = cxi
         
         return ss
+        
+        
+    @classmethod
+    def fromfiles(cls, list_of_files, detector=None, mask=None):
+        """
+        Convert a bunch of files containing x-ray exposure information into
+        a single ODIN shotset instance. For instance, you might have a large
+        collection of CBF files on disk; this function is the cannonical way to
+        get that data into Odin.
+        
+        File formats currently supported:
+            -- .cbf (crystallographic binary files)
+            -- .edf
+        
+        
+        Parameters
+        ----------
+        list_of_files : list of str
+            A list of paths to files to convert. These files should all be
+            of the same format, and have the same energy/detector geometry.
+        
+        Optional Parameters
+        -------------------
+        detector : odin.xray.Detector
+            A detector object to employ with the intensity data in the files
+            you passed. If `None`, Odin will attempt to infer this information
+            from the file metadata.
+            
+        mask : np.ndarray, bool
+            A one-D array of booleans, representing a mask that goes w/the
+            detector. This mask will be used in *addition* to any mask property
+            provided by the file metadata.
+            
+        Returns
+        -------
+        ss : odin.xray.Shotset
+            The shotset object.
+        """
+        
+        understood_extensions = ['.cbf', '.edf']
+        
+        # determine the filetype of the files
+        extension = list_of_files[0].split('.')[-1]
+        for fn in list_of_files:
+            if fn.split('.')[-1] != extension:
+                raise IOError('Inconsistent extensions in `list_of_files`, was'
+                              ' expecting all files to have "%s" extensions' % extension)
+                              
+        
+        if extension in understood_extensions:
+            
+            # assign the var `reader` to a specific class in parse that deals
+            # with the specific filetype. Those classes should be guarenteed
+            # to implenent the consequent methods called
+            
+            if extension == '.cbf':
+                reader = parse.CBF
+            elif extension == '.edf':
+                reader = parse.EDF
+            else:
+                raise RuntimeError()
+                
+                
+            logger.info('Converting %d files of type "%s" to a ShotSet...' % \
+                        (len(list_of_files), extension))
+                
+            # convert one file to get access to metadata: detector, mask
+            seed_shot = reader(list_of_files[0])
+            
+            if detector == None:
+                try:
+                    detector = seed_shot.detector
+                except:
+                    raise AttributeError('Cannot infer detector geometry from '
+                                         'file metadata. File %s accessed with '
+                                         'reader %s does not provide a detector'
+                                         ' method -- you must manually construct'
+                                         ' a `detector` object and pass it as'
+                                         ' an argument to `fromfiles`.'
+                                         '' % (list_of_files[0], str(reader)) )
+                     
+            if hasattr(seed_shot, 'mask'):
+                mask = np.logical_and(mask, seed_shot.mask)
+            
+            # now comes the tricky part -- we need to construct an iterator
+            # that we can pass to Shotset that hides the fact that each file
+            # is an independent object on disk
+            
+            
+            
+                
+                
+                    
+        else:
+            raise IOError('Cannot understand files with extension: %s, can only'
+                          ' read: %s' % (extension, str(understood_extensions)))
+        
+        return ss
 
 
 class Rings(object):
@@ -2783,6 +2881,49 @@ class Rings(object):
                 self._polar_intensities.append(pi_intx[None,:,:])
             
         return
+        
+        
+class _FileIterator(object):
+    """
+    An object designed to mimic the pytables iteration interface, but really
+    consist of many files on disk. Serves up intensity data specifically for
+    the Shotset class.
+    """
+    
+    def __init__(self, list_of_files, reader):
+        """
+        Initialize an instance.
+        
+        Parameters
+        ----------
+        list_of_files : list of str
+            A list of the files to "load".
+            
+        reader : odin.parse.SingleShotBase
+            An object from odin.parse that can
+        """
+        
+        if not isinstance(reader, parse.SingleShotBase):
+            raise TypeError('`reader` must be an instance of SingleShotBase')
+            
+        self.reader = reader
+        self.files = list_of_files
+        self.current_file = 0 # this is going to be the iterator state
+        
+        return
+    
+    @property
+    def num_files(self):
+        return len(self.files)
+    
+    def iterfiles(self):
+        """
+        An iterator over the intensities in each file.
+        """
+        while self.current_file < self.num_files:
+            shot = self.reader(self.files[self.current_file])
+            self.current_file += 1
+            yield shot.intensities_1d
 
 
 def _q_grid_as_xyz(q_values, num_phi, k):
