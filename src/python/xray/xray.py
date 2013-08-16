@@ -1921,8 +1921,7 @@ class Shotset(object):
         
         File formats currently supported:
             -- .cbf (crystallographic binary files)
-            -- .edf
-        
+            -- .edf (ESRF data format)
         
         Parameters
         ----------
@@ -2000,7 +1999,7 @@ class Shotset(object):
             if (hasattr(fiter.seed_shot, 'mask') and mask != None):
                 mask = np.logical_and(mask, fiter.seed_shot.mask)
             else:
-                mask = fiter.seed_shot.mask.copy()
+                pass # mask = mask
  
         else:
             raise IOError('Cannot understand files with extension: %s, can only'

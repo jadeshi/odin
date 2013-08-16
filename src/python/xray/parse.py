@@ -133,7 +133,7 @@ class CBF(SingleShotBase):
             raise ImportError('Could not import python package "fabio", please '
                               'install it')
         
-        logger.info('Reading: %s' % filename)
+        logger.debug('Reading: %s' % filename)
         self.filename = filename
         self.autocenter = autocenter
         
@@ -470,7 +470,7 @@ class EDF(SingleShotBase):
             raise ImportError('Could not import python package "fabio", please '
                               'install it')
         
-        logger.info('Reading: %s' % filename)
+        logger.debug('Reading: %s' % filename)
         self.filename = filename
         self.autocenter = autocenter
         
@@ -493,8 +493,8 @@ class EDF(SingleShotBase):
         """
         Returns the shape (slow, fast)
         """
-        shp = (int(self._info['Dim_1']), 
-               int(self._info['Dim_2']))
+        shp = (int(self._info['Dim_2']), 
+               int(self._info['Dim_1']))
         return shp
     
         
@@ -840,7 +840,7 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=25):
         """
 
         # interpolate the image
-        logger.info('Current center: (%.2f, %.2f)' % ( float(center[0]), float(center[1]) ) )
+        logger.debug('Current center: (%.2f, %.2f)' % ( float(center[0]), float(center[1]) ) )
         ri = interpolation.map_coordinates(image2d, [rx + center[0], ry + center[1]], order=1)
 
         a = np.mean( ri.reshape(num_r, num_phi), axis=1 )
