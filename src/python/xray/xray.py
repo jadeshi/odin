@@ -1487,9 +1487,9 @@ class Shotset(object):
                                        intensities[add] ))
 
             # do the interpolation
-            z_interp = interpolate.griddata( aug_xy[aug_mask], aug_int[aug_mask],
-                                             self.polar_grid(q_values, num_phi),
-                                             method='linear', fill_value=np.nan)
+            z_interp = sciinterp.griddata( aug_xy[aug_mask], aug_int[aug_mask],
+                                           self.polar_grid(q_values, num_phi),
+                                           method='linear', fill_value=np.nan)
                                              
             # mask missing pixels (outside convex hull)
             nans = np.isnan(z_interp)
