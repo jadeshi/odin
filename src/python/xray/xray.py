@@ -14,14 +14,15 @@ import cPickle
 import tables
 
 import numpy as np
-from scipy import interpolate
-from scipy.ndimage import filters, interpolation
 from scipy.special import legendre
+from scipy import interpolate as sciinterp
+from scipy.ndimage import filters
+from scipy.ndimage import interpolation as ndinterp
 
 from odin import math2
-from odin import scatter
 from odin import utils
-from odin import parse
+from odin.xray import scatter
+from odin.xray import parse
 
 from mdtraj import io
 from mdtraj.utils.arrays import ensure_type
@@ -1205,9 +1206,9 @@ class Shotset(object):
         y = np.linspace(points[:,1].min(), points[:,1].max(), num_y)
         grid_x, grid_y = np.meshgrid(x,y)
 
-        grid_z = interpolate.griddata(points, inten,
-                                      (grid_x,grid_y), method='nearest',
-                                      fill_value=0.0)
+        grid_z = sciinterp.griddata(points, inten,
+                                    (grid_x,grid_y), method='nearest',
+                                    fill_value=0.0)
 
         return grid_z
 
@@ -1440,9 +1441,11 @@ class Shotset(object):
                     # points to interpolate onto (pix_n)
                     
                     sqI = intensities[int_start:int_end].reshape(size[0], size[1])
-                    shot_pi[intersect] = interpolation.map_coordinates(sqI, pix_n.T, 
-                                                                       order=3,
-                                                                       mode='nearest')
+                    
+                    # below: 'mode' is how edges are delt with
+                    shot_pi[intersect] = ndinterp.map_coordinates(sqI, pix_n.T, 
+                                                                  order=3,
+                                                                  mode='nearest')
             
                 int_start += n_int
             

@@ -6,11 +6,14 @@ Tests for /src/python/parse.py
 import os, sys
 import warnings
 from nose import SkipTest
+
 import numpy as np
 from numpy.testing import assert_allclose
 
-from odin import parse, xray
+from odin import xray
+from odin.xray import parse
 from odin.testing import skip, ref_file, gputest, expected_failure
+
 from mdtraj import trajectory, io
 
 
@@ -52,11 +55,37 @@ class TestCBF(object):
         ref = (-x[1] * float(y[1]), -x[0] * float(y[0]))
         print ref, c
         assert ref == c
+        
 
-    @skip
-    def test_as_shot(self):
-        s = self.cbf.as_shotset()
-        assert isinstance(s, xray.Shotset)
+class TestEDF(object):
+    
+    def setup(self):
+        self.edf = parse.EDF(ref_file('test_edf.edf'))
+
+    def test_intensities_shape(self):
+        s = self.edf.intensities_shape
+        assert s == (487, 619)
+        
+    def test_numpix(self):
+        print self.edf.num_pixels
+        assert self.edf.num_pixels == 301453
+
+    def test_pixel_size(self):
+        x = self.edf.pixel_size
+        assert x == (0.000172, 0.000172)
+    
+    def test_center(self):
+        c = self.edf.center
+        ref = np.array([ 308.33235619,  243.66551465 ])
+        assert_allclose(c, ref, rtol=1e-03)
+    
+    def test_corner(self):
+        c = self.edf.corner
+        x = self.edf.pixel_size
+        y = self.edf.center
+        ref = (-x[1] * float(y[1]), -x[0] * float(y[0]))
+        print ref, c
+        assert ref == c
         
         
 class TestCXI(object):

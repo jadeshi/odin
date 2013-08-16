@@ -9,7 +9,7 @@ MultiShotBase : ABC for files with many exposures
 
 Various parsers:
 -- CBF        (crystallographic binary format)
--- EDF
+-- EDF        (ESRF data format)
 -- CXI        (coherent xray imaging format)
 """
 
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 import abc
 import inspect
-import tables
 import re
 import hashlib
 import yaml
@@ -28,11 +27,8 @@ import tables
 from base64 import b64encode
 
 import numpy as np
-
-# from odin import xray
-from odin.math2 import find_center
-from mdtraj import io
-
+from scipy import optimize
+from scipy.ndimage import interpolation
 
 try:
     import fabio
@@ -145,7 +141,6 @@ class CBF(SingleShotBase):
         self._fabio_handle = fabio.open(filename)
         self._info = self._fabio_handle.header
         self._parse_array_header( self._info['_array_data.header_contents'] )
-        self.intensity_dtype = self._convert_dtype(self._info['X-Binary-Element-Type'])
             
             
         # interpret user provided mask
@@ -175,9 +170,15 @@ class CBF(SingleShotBase):
         else:
             logger.debug('Unknown detector type: %s' % self._info['Detector'])
             
-            
         logger.debug('Finished loading file')
         
+        return
+        
+        
+    @property
+    def intensity_dtype(self):
+        return self._convert_dtype(self._info['X-Binary-Element-Type'])
+    
         
     @property
     def md5(self):
@@ -447,9 +448,121 @@ class CBF(SingleShotBase):
 
     
 class EDF(SingleShotBase):
+    """
+    Single shot parser for the ESRF data format.
+    """
     
-    def __init__(self):
-        raise NotImplementedError()
+    def __init__(self, filename, autocenter=True):
+        """
+        A light handle on a EDF file.
+        
+        Parameters
+        ----------
+        filename : str
+            The path to the CBF file.
+            
+        autocenter : bool
+            Whether or not to optimize the center (given a shot containing)
+            diffuse rings.
+        """
+        
+        if not FABIO_IMPORTED:
+            raise ImportError('Could not import python package "fabio", please '
+                              'install it')
+        
+        logger.info('Reading: %s' % filename)
+        self.filename = filename
+        self.autocenter = autocenter
+        
+        # extract all interesting stuff w/fabio
+        self._fabio_handle = fabio.open(filename)
+        self._info = self._fabio_handle.header
+                    
+        logger.debug('Finished loading file')
+        
+        return
+        
+        
+    @property
+    def intensity_dtype(self):
+        return self._info['DataType']
+    
+        
+    @property
+    def intensities_shape(self):
+        """
+        Returns the shape (slow, fast)
+        """
+        shp = (int(self._info['Dim_1']), 
+               int(self._info['Dim_2']))
+        return shp
+    
+        
+    @property
+    def num_pixels(self):
+        return np.product(self.intensities_shape)
+    
+        
+    @property
+    def pixel_size(self):
+        m = re.search('Pixel_size (\d+(\.\d+)?)[Ee](\+|-)(\d+) m x (\d+(\.\d+)?)[Ee](\+|-)(\d+) m', self._info['title'])
+        first  = float( m.group(1) + 'e' + m.group(3) + m.group(4) )
+        second = float( m.group(5) + 'e' + m.group(7) + m.group(8) )
+        return (first, second)
+    
+        
+    @property
+    def center(self):
+        """
+        The center of the image, in PIXEL UNITS and as a tuple for dimensions
+        (SLOW, FAST). Note that this is effectively (y,x), if y is the
+        vertical direction in the lab frame.
+        """
+        if not hasattr(self, '_center'):
+            self._center = self._find_center()
+        return self._center
+    
+        
+    @property
+    def corner(self):
+        """
+        The bottom left corner position, in real space (x,y). Note that this
+        corresponds to (FAST, SLOW) (!). This is the opposite of "center".
+        """
+        return (-self.pixel_size[1] * self.center[1], 
+                -self.pixel_size[0] * self.center[0])
+        
+        
+    @property
+    def intensities(self):
+        return self._fabio_handle.data
+    
+        
+    @property
+    def intensities_1d(self):
+        return self._fabio_handle.data.flatten()
+    
+            
+    def _find_center(self):
+        """
+        Find the center of any Bragg rings (aka the location of the x-ray beam).
+        
+        Returns
+        -------
+        center : tuple of ints
+            The indicies of the pixel nearest the center of the Bragg peaks. The
+            center is returned in pixel units in terms of (slow, fast).
+            
+        See Also
+        --------
+        self.center
+        self.corner
+        """
+        if self.autocenter:
+            center = find_center(self.intensities, pix_res=0.01)
+        else:
+            center = np.array(self.intensities_shape) / 2.0
+        return center
     
         
 class CXIdb(object):
@@ -647,4 +760,97 @@ class CheetahCXI(CXIdb, MultiShotBase):
                 flat_intensities[flat_start+n_ASIC_pixels:flat_start+n_ASIC_pixels*2] = sec2.flatten()
 
         return flat_intensities
+        
+        
+def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=25):
+    """
+    Locates the center of an image of a circle.
+    
+    Parameters
+    ----------
+    image2d : ndarray
+        The image -- should be two dimensional array.
+
+    Optional Parameters
+    -------------------
+    mask : ndarray, bool
+        A boolean mask to apply to `image2d`, should be same shape. `True`
+        indicates a pixel should be kept.
+
+    initial_guess : 2-tuple of floats
+        An initial guess for the center, in pixel units. If `None`, then the
+        center of the image is guessed.
+
+    pix_res : float
+        The desired resolution of the center. Higher resolution takes longer to
+        converge.
+
+    window : int
+        The size, in pix_res units, of the search area for the algorithm. If the
+        default settings don't seem to find the center, try giving a better
+        `initial_guess` as to the center and increase this value a bit.
+
+    Returns
+    -------
+    center : 2-tuple of floats
+        The (x,y) position of the center, in pixel units.
+    """
+
+    logger.info('Finding the center of the strongest ring...')
+
+    x_size = image2d.shape[0]
+    y_size = image2d.shape[1]
+
+    if mask != None:
+        if not mask.shape == image2d.shape:
+            raise ValueError('Mask and image must have same shape! Got %s, %s'
+                             ' respectively.' % ( str(mask.shape), str(image2d.shape) ))
+        image2d *= mask.astype(np.bool)
+
+    if initial_guess == None:
+        initial_guess = np.array(image2d.shape) / 2.0
+
+    # generate a radial grid
+    num_phi = 360
+    phi = np.linspace(0.0, 2.0 * np.pi * (float(num_phi-1)/num_phi), num=num_phi)
+    r   = np.arange(pix_res, np.min([x_size/3., y_size/3.]), pix_res)
+    num_r = len(r)
+
+    rx = np.repeat(r, num_phi) * np.cos(np.tile(phi, num_r))
+    ry = np.repeat(r, num_phi) * np.sin(np.tile(phi, num_r))
+
+    # find the maximum intensity and narrow our search to include a window
+    # around only that value
+    ri = interpolation.map_coordinates(image2d, [rx + initial_guess[0], 
+                                                 ry + initial_guess[1]], order=1)
+    a = np.mean( ri.reshape(num_r, num_phi), axis=1 )
+    rind_max = np.argmax(a)
+
+    rlow  = max([0,     rind_max - window])
+    rhigh = min([num_r, rind_max + window])
+    num_r = rhigh - rlow
+
+    rx = np.repeat(r[rlow:rhigh], num_phi) * np.cos(np.tile(phi, num_r))
+    ry = np.repeat(r[rlow:rhigh], num_phi) * np.sin(np.tile(phi, num_r))
+
+
+    def objective(center):
+        """
+        Returns the peak height in radial space.
+        """
+
+        # interpolate the image
+        logger.info('Current center: (%.2f, %.2f)' % ( float(center[0]), float(center[1]) ) )
+        ri = interpolation.map_coordinates(image2d, [rx + center[0], ry + center[1]], order=1)
+
+        a = np.mean( ri.reshape(num_r, num_phi), axis=1 )
+        m = np.max(a)
+
+        return -1.0 * m
+
+    logger.debug('optimizing center position')
+    center = optimize.fmin_powell(objective, initial_guess, xtol=pix_res, disp=0)
+    logger.debug('Optimal center: %s (Delta: %s)' % (center, initial_guess-center))
+
+    return center
 

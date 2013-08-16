@@ -3,9 +3,16 @@
 Reference implementation & unit test for the GPU & CPU scattering simulation code
 """
 
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logging.basicConfig()
+
 import numpy as np
 from numpy.linalg import norm
 from numpy.testing import assert_almost_equal, assert_allclose
+
+from nose import SkipTest
 
 try:
     from odin import _gpuscatter
@@ -14,20 +21,15 @@ except ImportError:
     GPU = False
 
 from odin.refdata import cromer_mann_params
-from odin import xray, scatter, _cpuscatter, structure
-
-
-from odin.structure import rand_rotate_molecule
+from odin import xray
+from odin import _cpuscatter
 from odin.testing import skip, ref_file, gputest
+from odin.xray import scatter
+from odin.xray import structure
+from odin.xray.structure import rand_rotate_molecule
 
 from mdtraj import trajectory
 
-from nose import SkipTest
-
-import logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logging.basicConfig()
 
 # ------------------------------------------------------------------------------
 #                        BEGIN REFERENCE IMPLEMENTATIONS

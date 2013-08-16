@@ -9,13 +9,14 @@ logger = logging.getLogger(__name__)
 #logger.setLevel('DEBUG')
 
 import numpy as np
-from scipy import misc, special
+from scipy import misc
+from scipy import special
 from threading import Thread
 
 from odin import _cpuscatter
-from odin.refdata import cromer_mann_params
 from odin.math2 import arctan3
 from odin.exptdata import ExptData
+from odin.refdata import cromer_mann_params
 
 try:
     from odin import _gpuscatter

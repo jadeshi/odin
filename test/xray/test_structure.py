@@ -1,28 +1,28 @@
 
 import os
+import itertools
 
 from mdtraj import trajectory
-from odin import structure
+
+from odin.xray import structure
 from odin.testing import ref_file
+from odin.math2 import rand_rot
 
 import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_allclose
-
-import itertools
-
 from scipy.stats import chi2 as chi2distribution
+
 try:
     import matplotlib.pyplot as pp
     HAVE_PYPLOT = True
 except ImportError:
     HAVE_PYPLOT = False
 
-from odin.math2 import rand_rot
-
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logging.basicConfig()
+
 
 def test_m_confs():
     # smoke test

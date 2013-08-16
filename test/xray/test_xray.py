@@ -3,14 +3,23 @@
 Tests: src/python/xray.py
 """
 
-import os, sys
+import os
+import sys
 import warnings
 import tables
 from nose import SkipTest
 
-from odin import xray, utils, parse, structure, math2, utils, _cpuscatter
-from odin.testing import skip, ref_file, expected_failure, brute_force_masked_correlation
+from odin import utils
+from odin import math2
+from odin import utils
+from odin import xray
+from odin import _cpuscatter
+from odin.xray import parse
+from odin.xray import structure
+from odin.testing import (skip, ref_file, expected_failure, 
+                          brute_force_masked_correlation)
 from odin.refdata import cromer_mann_params
+
 from mdtraj import trajectory, io
 
 try:
