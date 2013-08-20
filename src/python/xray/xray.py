@@ -1413,6 +1413,7 @@ class Shotset(object):
         # --- loop over shots
         #     actually do the interpolation
 
+        logger.info('Interpolating shots...')
         for shot,intensities in enumerate(self.intensities_iter):
             
             int_start  = 0 # start of intensity array correpsonding to `grid`
@@ -1452,6 +1453,7 @@ class Shotset(object):
             
             polar_intensities_output.append( shot_pi.reshape(1, num_q, num_phi) )
             
+        logger.info('... complete')
             
         return polar_mask
 
@@ -1843,7 +1845,7 @@ class Shotset(object):
                                'Loading data into memory...')
                 
             intensities_handle = np.zeros((len(to_load), d.num_pixels))
-            logger.info(utils.logger_return + 'loading %d of %d shots...' % (len(to_load), num_shots))
+            logger.info('loading %d of %d shots...' % (len(to_load), num_shots))
             
             for i,s in enumerate(to_load):
                 intensities_handle[i,:] = hdf.root.intensities.read(s)
@@ -2353,7 +2355,7 @@ class Rings(object):
             Either the average correlation, or every correlation as a 2d array
         """
 
-        logger.info(utils.logger_return + "Correlating rings at %f / %f" % (q1, q2))
+        logger.info("Correlating rings at %f / %f" % (q1, q2))
 
         q_ind1 = self.q_index(q1)
         q_ind2 = self.q_index(q2)
@@ -2380,6 +2382,7 @@ class Rings(object):
             var1 = 0.0
             var2 = 0.0
         
+        logger.info('Correlating shots...')
         for i,pi in enumerate(self.polar_intensities_iter):
 
             logger.info(utils.logger_return + 'Correlating shot %d/%d' % (i+1, num_shots))
@@ -2408,6 +2411,8 @@ class Rings(object):
             intra /= np.sqrt( var1 * var2 / np.square(float(num_shots)) )
             #assert intra.max() <=  1.1
             #assert intra.min() >= -1.1
+            
+        logger.info('... complete')
         
         return intra
     
@@ -2443,25 +2448,13 @@ class Rings(object):
             Either the average correlation, or every correlation as a 2d array
         """
 
-        logger.info(utils.logger_return + "Correlating rings at %f / %f" % (q1, q2))
+        logger.info("Correlating rings at %f / %f" % (q1, q2))
 
         q_ind1 = self.q_index(q1)
         q_ind2 = self.q_index(q2)
 
         max_pairs = self.num_shots * (self.num_shots - 1) / 2
         
-        if (num_pairs == 0) or (num_pairs > max_pairs):
-            inter_pairs = utils.all_pairs(self.num_shots)
-            num_pairs = max_pairs
-        else:
-            inter_pairs = utils.random_pairs(self.num_shots, num_pairs)
-            
-        # generate an output space
-        if mean_only:
-            inter = np.zeros(self.num_phi)
-        else:
-            inter = np.zeros((num_pairs, self.num_phi))
-
         # Check if mask exists
         if self.polar_mask != None:
             mask1 = self.polar_mask[q_ind1,:]
@@ -2474,41 +2467,110 @@ class Rings(object):
         if normed:
             var1 = 0.0
             var2 = 0.0
+            
+        # to compute inter correlators, we can either pull random pairs and 
+        # correlate (order: N^2, N=#shots), or we can correlate each shot against 
+        # the average of all the other shots to quickly get the mean inter
+        # correlator (order N)
         
-        for k,(i,j) in enumerate(inter_pairs):
+        # use order N method: correlate vs. mean
+        logger.info('Correlating intra...')
+        if mean_only:
+            logger.debug('mean only')
             
-            logger.info(utils.logger_return + 'Correlating intra %d/%d' % (i+1, num_pairs))
+            inter = np.zeros(self.num_phi)
+            total = np.zeros(self.num_phi)
             
-            if self._polar_intensities_type == 'array':
-                rings1 = self._polar_intensities[i,q_ind1,:]
-                rings2 = self._polar_intensities[j,q_ind2,:]
-                
-            # todo : this could be very slow if we have to skip all over the
-            #        place on disk -- do some tests, see if it's a problem,
-            #        act accordingly
-            elif self._polar_intensities_type == 'tables':
-                rings1 = self._polar_intensities.read(i)
-                rings2 = self._polar_intensities.read(j)
-                rings1 = rings1[0,q_ind1,:]
-                rings2 = rings2[0,q_ind2,:]
-            
-            if mean_only:
-                inter += self._correlate_rows(rings1, rings2, mask1, mask2,
-                                              use_fft=use_fft)
+            # decide how many shots to use
+            if (num_pairs == 0) or (num_pairs >= max_pairs):
+                num_pairs = max_pairs
+                actual_pairs = max_pairs
+                break_n = self.num_shots
             else:
+                # this is a crude but ez approx to the number requested...
+                # it will always compute more correlators than asked for
+                break_n = (self.num_shots - 1) / num_pairs
+                actual_pairs = np.sum([(self.num_shots-k) for k in range(break_n)])
+                logger.info('Rounding up number of computed inter correlation'
+                            ' pairs for optimal efficiency: %d paris.' % actual_pairs)
+            
+            if normed:
+                ring1_var = np.zeros(self.num_shots)
+            
+            # first loop -- compute mean
+            for n,itx in enumerate(self.polar_intensities_iter):
+                logger.info(utils.logger_return + 'Averaging shot %d/%d' % (n+1, break_n))
+                if n == break_n:
+                    logger.info('%d shots reached, breaking first loop' % n)
+                    break
+                if normed: ring1_var[n] = np.var(itx[q_ind1,:])
+                total += itx[q_ind1,:]
+            
+            # second loop -- compute inter correlators
+            for n,itx in enumerate(self.polar_intensities_iter):
+                logger.info(utils.logger_return + 'Correlating shot %d/%d w/all others' % (n+1, break_n))
+                if n == break_n:
+                    logger.info('%d shots reached, breaking second loop' % n)
+                    break
+                
+                total -= itx[q_ind1,:]
+                rings2 = itx[q_ind2,:].copy()
+                inter += self._correlate_rows(total, rings2, mask1, mask2,
+                                              use_fft=use_fft)
+                
+                if normed:
+                    var1 += np.sum( ring1_var[n+1:] )
+                    var2 += np.var( rings2[mask2] )
+                    
+            # normalize -- dont touch this! -- TJL
+            inter /= float(np.sum([(self.num_shots-k) for k in range(1,break_n+1)])) 
+            inter /= float(self.num_shots) / 2.0
+            
+            if normed:
+                inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
+                inter /= np.sqrt( (self.num_shots - 1.0) / 2.0 )
+
+            
+        # draw random pairs
+        else:
+            logger.debug('mean only')
+            
+            if (num_pairs == 0) or (num_pairs >= max_pairs):
+                inter_pairs = utils.all_pairs(self.num_shots)
+                num_pairs = max_pairs
+                inter = np.zeros((num_pairs, self.num_phi)) # output space
+            else:
+                inter_pairs = utils.random_pairs(self.num_shots, num_pairs)
+            
+            inter = np.zeros((num_pairs, self.num_phi))
+
+            for k,(i,j) in enumerate(inter_pairs):
+            
+                logger.info(utils.logger_return + 'Correlating intra pair %d/%d' % (k+1, num_pairs))
+            
+                if self._polar_intensities_type == 'array':
+                    rings1 = self._polar_intensities[i,q_ind1,:]
+                    rings2 = self._polar_intensities[j,q_ind2,:]
+                
+                elif self._polar_intensities_type == 'tables':
+                    rings1 = self._polar_intensities.read(i)
+                    rings2 = self._polar_intensities.read(j)
+                    rings1 = rings1[0,q_ind1,:]
+                    rings2 = rings2[0,q_ind2,:]
+                    
                 inter[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2,
                                                   use_fft=use_fft)
             
+                if normed:
+                    var1 += np.var( rings1[mask1] )
+                    var2 += np.var( rings2[mask2] )
+                    
             if normed:
-                var1 += np.var( rings1[mask1] )
-                var2 += np.var( rings2[mask2] )
+                inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
+                    
+        logger.info('... complete')
             
-                
-        if mean_only:
-            inter /= float(num_pairs)
-            
-        if normed:
-            inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
+
             #assert inter.max() <=  1.0
             #assert inter.min() >= -1.0
 
