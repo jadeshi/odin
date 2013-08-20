@@ -23,6 +23,7 @@ from odin import math2
 from odin import utils
 from odin.xray import scatter
 from odin.xray import parse
+from odin.corr import correlate as brute_correlate
 
 from mdtraj import io
 from mdtraj.utils.arrays import ensure_type
@@ -2321,7 +2322,8 @@ class Rings(object):
         return intensity_profile
 
 
-    def correlate_intra(self, q1, q2, num_shots=0, normed=False, mean_only=True):
+    def correlate_intra(self, q1, q2, num_shots=0, normed=False, mean_only=True,
+                        use_fft=True):
         """
         Does intRA-shot correlations for many shots.
 
@@ -2340,6 +2342,10 @@ class Rings(object):
             return the (std-)normalized correlation or un-normalized correlation
         mean_only : bool
             whether or not to return every correlation, or the average
+        use_fft : bool
+            Whether or not to use a dFFT + convolution theorem to compute the
+            correlator (order: N log N). If False, use a brute force
+            implemenation that is slower but more robust to noise.
 
         Returns
         -------
@@ -2382,9 +2388,11 @@ class Rings(object):
             rings2 = pi[q_ind2,:]
             
             if mean_only:
-                intra += self._correlate_rows(rings1, rings2, mask1, mask2)
+                intra += self._correlate_rows(rings1, rings2, mask1, mask2,
+                                              use_fft=use_fft)
             else:
-                intra[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2)
+                intra[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2,
+                                                  use_fft=use_fft)
             
             if normed:
                 var1 += np.var( rings1[mask1] )
@@ -2404,7 +2412,8 @@ class Rings(object):
         return intra
     
 
-    def correlate_inter(self, q1, q2, num_pairs=0, normed=False, mean_only=True):
+    def correlate_inter(self, q1, q2, num_pairs=0, normed=False, mean_only=True,
+                        use_fft=True):
         """
         Does intER-shot correlations for many shots.
 
@@ -2423,6 +2432,10 @@ class Rings(object):
             return the (std-)normalized correlation or un-normalized correlation
         mean_only : bool
             whether or not to return every correlation, or the average
+        use_fft : bool
+            Whether or not to use a dFFT + convolution theorem to compute the
+            correlator (order: N log N). If False, use a brute force
+            implemenation that is slower but more robust to noise.
 
         Returns
         -------
@@ -2480,9 +2493,11 @@ class Rings(object):
                 rings2 = rings2[0,q_ind2,:]
             
             if mean_only:
-                inter += self._correlate_rows(rings1, rings2, mask1, mask2)
+                inter += self._correlate_rows(rings1, rings2, mask1, mask2,
+                                              use_fft=use_fft)
             else:
-                inter[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2)
+                inter[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2,
+                                                  use_fft=use_fft)
             
             if normed:
                 var1 += np.var( rings1[mask1] )
@@ -2501,7 +2516,7 @@ class Rings(object):
         
         
     @staticmethod
-    def _correlate_rows(x, y, x_mask=None, y_mask=None):
+    def _correlate_rows(x, y, x_mask=None, y_mask=None, use_fft=True):
         """
         Compute the (unnormalized) circular correlation function across the rows
         of x,y. The correlation functions are computed using the fluctuations
@@ -2518,6 +2533,11 @@ class Rings(object):
         x_mask,y_mask : np.ndarray, bool
             Arrays describing masks over the data. These are 1D arrays of size
             M, with a single value for each data point.
+            
+        use_fft : bool
+            Whether or not to use a dFFT + convolution theorem to compute the
+            correlator (order: N log N). If False, use a brute force
+            implemenation that is slower but more robust to noise.
         
         Returns
         -------
@@ -2582,10 +2602,16 @@ class Rings(object):
         x_bar = x.mean(axis=1)[:,None]
         y_bar = y.mean(axis=1)[:,None]
         
-        # use d-FFT + convolution thm
-        ffx  = np.fft.rfft((x - x_bar) * xm, n=n_col, axis=1)
-        ffy  = np.fft.rfft((y - y_bar) * ym, n=n_col, axis=1)
-        corr = np.fft.irfft( ffx * np.conjugate(ffy), n=n_col, axis=1)
+        if use_fft: # use d-FFT + convolution thm
+            ffx  = np.fft.rfft((x - x_bar) * xm, n=n_col, axis=1)
+            ffy  = np.fft.rfft((y - y_bar) * ym, n=n_col, axis=1)
+            corr = np.fft.irfft( ffx * np.conjugate(ffy), n=n_col, axis=1)
+            
+        else:       # use C++ brute force implementation
+            corr = np.zeros((n_row, n_col))
+            for i in range(n_row):
+                corr[i,:] = brute_correlate(x[i,:] * xm, y[i,:] * ym, 2)
+            
         assert corr.shape == (n_row, n_col)
                     
         # normalize by the number of pairs
