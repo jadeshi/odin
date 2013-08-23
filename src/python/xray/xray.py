@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 import os
 import cPickle
 import tables
+import multiprocessing
 
 import numpy as np
 from scipy.special import legendre
@@ -28,6 +29,19 @@ from odin.corr import correlate as brute_correlate
 from mdtraj import io
 from mdtraj.utils.arrays import ensure_type
 
+# ------------------------------------------------------------------------------
+# SPECIAL IMPORT FOR PYFFTW
+# Try to import pyfftw, and if it works, use it to construct a fft_correlate
+# function. Otherwise use numpy's fftpack wrapper.
+
+try:
+    import pyfftw
+    logger.debug('pyfftw import successful -- constructing Rings._fft_correlate from pyfftw')
+    PYFFTW_INSTALLED = True
+except ImportError as e:
+    logger.debug(e)
+    logger.debug('Could not import pyfftw -- constructing Rings._fft_correlate from np.fft')
+    PYFFTW_INSTALLED = False
 
 # ------------------------------------------------------------------------------
 # FUNDAMENTAL CONSTANTS
@@ -2017,7 +2031,7 @@ class Rings(object):
     """
 
     def __init__(self, q_values, polar_intensities, k, polar_mask=None,
-                 filters=[]):
+                 filters=[], num_procs=0):
         """
         Interpolate our cartesian-based measurements into a polar coordiante
         system.
@@ -2093,6 +2107,13 @@ class Rings(object):
         self._q_values = np.array(q_values)  # q values of the ring data
         self.k         = k                   # wave number
 
+        self._initialize_fft_correlate()
+        self._batch_size = 128 # number of shots to load then FFT
+        if num_procs == 0:
+            self.num_procs = multiprocessing.cpu_count()
+        else:
+            self.num_procs = int(num_procs)
+
         return
     
         
@@ -2100,6 +2121,98 @@ class Rings(object):
         if hasattr(self, '_hdf'):
             if self._hdf:
                 self._hdf.close()
+        return
+        
+        
+    def _initialize_fft_correlate(self):
+        """
+        Monkey patch the _fft_correlate_base() method, using pyfftw (fast) if it's
+        installed, and otherwise just use numpy's fftpack wrappers.
+        """
+        
+        if PYFFTW_INSTALLED:
+            
+            finp = pyfftw.n_byte_align_empty((self._batch_size, self.num_pixels), 8, 'float64')
+            fout = pyfftw.n_byte_align_empty((self._batch_size, self.num_pixels/2 + 1), 16, 'complex128')
+            fft_fwd = pyfftw.FFTW(finp, fout, direction='FFTW_FORWARD', 
+                                  flags=('FFTW_MEASURE',), 
+                                  threads=self.num_procs)
+                                  
+            bout = pyfftw.n_byte_align_empty((self._batch_size, self.num_pixels), 8, 'float64')
+            binp = pyfftw.n_byte_align_empty((self._batch_size, self.num_pixels/2 + 1), 16, 'complex128')
+            fft_bck = pyfftw.FFTW(binp, bout, direction='FFTW_BACKWARD', 
+                                  flags=('FFTW_MEASURE',),
+                                  threads=self.num_procs)
+                                  
+            def fxn(a, b):
+                
+                # transform & conj first array
+                finp[:] = a
+                fft_fwd(finp, fout)
+                binp = fout.copy()
+                binp = np.conjugate(binp)
+                
+                # transform second array
+                finp[:] = b
+                fft_fwd(b, fout)
+                
+                # convolve
+                binp *= fout
+                
+                # inv FT
+                fft_bck(binp, bout)
+                
+                return bout.copy()
+                
+            
+        else: # not PYFFTW_INSTALLED, use np ffts
+            
+            def fxn(a, b):
+                # n = how big the array is
+                ffx  = np.fft.rfft(a, n=a.shape[0], axis=1)
+                ffy  = np.fft.rfft(b, n=b.shape[0], axis=1)
+                return np.fft.irfft( ffx * np.conjugate(ffy), n=a.shape[0], axis=1)
+            
+        self._fft_correlate_base = fxn
+        
+        return
+    
+        
+    def _fft_correlate(self, a, b):
+        """
+        Correlate two read arrays, `a` and `b`, using the fast Fourier transform.
+        These arrrays should already be mean subtracted!
+
+        Parameters
+        ----------
+        a, b : np.ndarray, real
+            The two arrays to correlate. Correlation is performed along the last
+            axis *only*. Must be one or two dimensional.
+            
+        Returns
+        -------
+        correlation : np.ndarray
+            The correlation function, Corr(a,b). Unnormalized.
+        """
+        
+        if (not a.shape == (self._batch_size, self.num_pixels)) or \
+           (not b.shape == (self._batch_size, self.num_pixels)):
+           
+           raise RuntimeError('`a` or `b` passed to _fft_correlate has the '
+                              'incorrect shape. Should be %s, is a=%s/b=%s' % \
+                                  ( str((self._batch_size, self.num_pixels)), 
+                                    str(a.shape), str(b.shape)) )
+                                    
+        return _fft_correlate_base(a, b)
+    
+        
+    def _fft_correlate_base(a, b):
+        """
+        # this is just a placeholder -- the actual function gets monkey patched
+        # by Rings._initialize_fft_correlate()
+        """
+        raise RuntimeError('Class initialization failed -- '
+                           'Rings._initialize_fft_correlate() never ran.')
         return
     
         
@@ -2665,9 +2778,7 @@ class Rings(object):
         y_bar = y.mean(axis=1)[:,None]
         
         if use_fft: # use d-FFT + convolution thm
-            ffx  = np.fft.rfft((x - x_bar) * xm, n=n_col, axis=1)
-            ffy  = np.fft.rfft((y - y_bar) * ym, n=n_col, axis=1)
-            corr = np.fft.irfft( ffx * np.conjugate(ffy), n=n_col, axis=1)
+            corr = self._fft_correlate(a, b)
             
         else:       # use C++ brute force implementation
             corr = np.zeros((n_row, n_col))
