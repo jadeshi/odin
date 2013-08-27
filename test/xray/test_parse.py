@@ -88,6 +88,23 @@ class TestEDF(object):
         assert ref == c
         
         
+class TestTIFF(object):
+    
+    def setup(self):
+        self.tiff = parse.EDF(ref_file('test.tif'))
+
+    def test_intensities_shape(self):
+        s = self.tiff.intensities_shape
+        assert s == (2048, 2048)
+        
+    def test_numpix(self):
+        print self.tiff.num_pixels
+        assert self.tiff.num_pixels == 2048*2048
+    
+    # current test data is just noise
+    # so no def test_center(self):
+        
+        
 class TestCXI(object):
     def setup(self):
         pass

@@ -58,6 +58,44 @@ class SingleShotBase(object):
     def intensities_1d(self):
         """ Return the intensities in a format Odin can understand """
         return
+        
+    # some methods that we might not require, but will be useful for all
+    # instances of SingleShotBase
+    
+    @property
+    def center(self):
+        """
+        The center of the image, in PIXEL UNITS and as a tuple for dimensions
+        (SLOW, FAST). Note that this is effectively (y,x), if y is the
+        vertical direction in the lab frame.
+        """
+        if not hasattr(self, '_center'):
+            self._center = self._find_center()
+        return self._center
+    
+        
+    def _find_center(self):
+        """
+        Find the center of any Bragg rings (aka the location of the x-ray beam).
+
+        Returns
+        -------
+        center : tuple of ints
+            The indicies of the pixel nearest the center of the Bragg peaks. The
+            center is returned in pixel units in terms of (slow, fast).
+
+        See Also
+        --------
+        self.center
+        self.corner
+        """
+        if hasattr(self, 'autocenter'):
+            if self.autocenter:
+                center = find_center(self.intensities, mask=self.mask, pix_res=0.01)
+        else:
+            center = np.array(self.intensities_shape) / 2.0
+        return center
+    
     
     
 class MultiShotBase(object):
@@ -228,18 +266,6 @@ class CBF(SingleShotBase):
     
         
     @property
-    def center(self):
-        """
-        The center of the image, in PIXEL UNITS and as a tuple for dimensions
-        (SLOW, FAST). Note that this is effectively (y,x), if y is the
-        vertical direction in the lab frame.
-        """
-        if not hasattr(self, '_center'):
-            self._center = self._find_center()
-        return self._center
-    
-        
-    @property
     def corner(self):
         """
         The bottom left corner position, in real space (x,y). Note that this
@@ -351,29 +377,7 @@ class CBF(SingleShotBase):
             logger.critical("Header MD5:  %s" % self.md5)
             raise RuntimeError('Data and stored md5 hashes do not match! Data corrupted.')
     
-            
-    def _find_center(self):
-        """
-        Find the center of any Bragg rings (aka the location of the x-ray beam).
-        
-        Returns
-        -------
-        center : tuple of ints
-            The indicies of the pixel nearest the center of the Bragg peaks. The
-            center is returned in pixel units in terms of (slow, fast).
-            
-        See Also
-        --------
-        self.center
-        self.corner
-        """
-        if self.autocenter:
-            center = find_center(self.intensities, mask=self.mask, pix_res=0.01)
-        else:
-            center = np.array(self.intensities_shape) / 2.0
-        return center
-    
-        
+
     def _pilatus_mask(self, border_size=3):
         """
         The pixels on the edges of the detector are often noisy -- this function
@@ -513,18 +517,6 @@ class EDF(SingleShotBase):
     
         
     @property
-    def center(self):
-        """
-        The center of the image, in PIXEL UNITS and as a tuple for dimensions
-        (SLOW, FAST). Note that this is effectively (y,x), if y is the
-        vertical direction in the lab frame.
-        """
-        if not hasattr(self, '_center'):
-            self._center = self._find_center()
-        return self._center
-    
-        
-    @property
     def corner(self):
         """
         The bottom left corner position, in real space (x,y). Note that this
@@ -532,7 +524,7 @@ class EDF(SingleShotBase):
         """
         return (-self.pixel_size[1] * self.center[1], 
                 -self.pixel_size[0] * self.center[0])
-        
+    
         
     @property
     def intensities(self):
@@ -543,27 +535,6 @@ class EDF(SingleShotBase):
     def intensities_1d(self):
         return self._fabio_handle.data.flatten()
     
-            
-    def _find_center(self):
-        """
-        Find the center of any Bragg rings (aka the location of the x-ray beam).
-        
-        Returns
-        -------
-        center : tuple of ints
-            The indicies of the pixel nearest the center of the Bragg peaks. The
-            center is returned in pixel units in terms of (slow, fast).
-            
-        See Also
-        --------
-        self.center
-        self.corner
-        """
-        if self.autocenter:
-            center = find_center(self.intensities, pix_res=0.01)
-        else:
-            center = np.array(self.intensities_shape) / 2.0
-        return center
         
         
 class TIFF(SingleShotBase):
@@ -627,28 +598,6 @@ class TIFF(SingleShotBase):
     
         
     @property
-    def center(self):
-        """
-        The center of the image, in PIXEL UNITS and as a tuple for dimensions
-        (SLOW, FAST). Note that this is effectively (y,x), if y is the
-        vertical direction in the lab frame.
-        """
-        if not hasattr(self, '_center'):
-            self._center = self._find_center()
-        return self._center
-    
-        
-    # @property
-    # def corner(self):
-    #     """
-    #     The bottom left corner position, in real space (x,y). Note that this
-    #     corresponds to (FAST, SLOW) (!). This is the opposite of "center".
-    #     """
-    #     return (-self.pixel_size[1] * self.center[1], 
-    #             -self.pixel_size[0] * self.center[0])
-        
-        
-    @property
     def intensities(self):
         return self._fabio_handle.data
     
@@ -656,28 +605,6 @@ class TIFF(SingleShotBase):
     @property
     def intensities_1d(self):
         return self._fabio_handle.data.flatten()
-    
-            
-    def _find_center(self):
-        """
-        Find the center of any Bragg rings (aka the location of the x-ray beam).
-        
-        Returns
-        -------
-        center : tuple of ints
-            The indicies of the pixel nearest the center of the Bragg peaks. The
-            center is returned in pixel units in terms of (slow, fast).
-            
-        See Also
-        --------
-        self.center
-        self.corner
-        """
-        if self.autocenter:
-            center = find_center(self.intensities, pix_res=0.01)
-        else:
-            center = np.array(self.intensities_shape) / 2.0
-        return center
     
         
 class CXIdb(object):
