@@ -1923,8 +1923,9 @@ class Shotset(object):
         get that data into Odin.
         
         File formats currently supported:
-            -- .cbf (crystallographic binary files)
-            -- .edf (ESRF data format)
+            -- .cbf  (crystallographic binary files)
+            -- .edf  (ESRF data format)
+            -- .tiff (tagged image file format)
         
         Parameters
         ----------
@@ -1950,7 +1951,7 @@ class Shotset(object):
             The shotset object.
         """
         
-        understood_extensions = ['cbf', 'edf']
+        understood_extensions = ['cbf', 'edf', 'tiff', 'tif']
         
         # determine the filetype of the files
         extension = list_of_files[0].split('.')[-1]
@@ -1970,6 +1971,8 @@ class Shotset(object):
                 reader = parse.CBF
             elif extension == 'edf':
                 reader = parse.EDF
+            elif extension in ['tif', 'tiff']:
+                reader = parse.TIFF
             else:
                 raise RuntimeError('internal consistency error: understood_extensions')
                 
