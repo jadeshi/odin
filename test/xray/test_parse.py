@@ -64,7 +64,7 @@ class TestEDF(object):
 
     def test_intensities_shape(self):
         s = self.edf.intensities_shape
-        assert s == (487, 619)
+        assert s == (619, 487)
         
     def test_numpix(self):
         print self.edf.num_pixels
@@ -91,7 +91,7 @@ class TestEDF(object):
 class TestTIFF(object):
     
     def setup(self):
-        self.tiff = parse.EDF(ref_file('test.tif'))
+        self.tiff = parse.TIFF(ref_file('test.tif'))
 
     def test_intensities_shape(self):
         s = self.tiff.intensities_shape
