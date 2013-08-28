@@ -51,7 +51,7 @@ class Beam(object):
     self.wavenumber  (angular, inv. angstroms)
     """
 
-    def __init__(self, photons_scattered_per_shot, **kwargs):
+    def __init__(self, photons_scattered_per_shot=None, **kwargs):
         """
         Generate an instance of the Beam class.
 
