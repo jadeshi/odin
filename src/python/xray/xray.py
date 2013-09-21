@@ -851,7 +851,7 @@ class Detector(Beam):
         return d
 
 
-    def save(self, filename):
+    def save(self, filename, overwrite=False):
         """
         Writes the current Detector to disk.
 
@@ -859,12 +859,15 @@ class Detector(Beam):
         ----------
         filename : str
             The path to the shotset file to save.
+            
+        overwrite : bool
+            If False, cannot overwrite a file already on disk.
         """
 
         if not filename.endswith('.dtc'):
             filename += '.dtc'
             
-        if os.path.exists(filename):
+        if os.path.exists(filename) and (not overwrite):
             raise IOError('File: %s already exists! Aborting...' % filename)
 
         io.saveh(filename, detector=self._to_serial())
@@ -1721,7 +1724,7 @@ class Shotset(object):
         return ret_val
 
 
-    def save(self, filename):
+    def save(self, filename, overwrite=False):
         """
         Writes the current Shotset data to disk.
 
@@ -1729,12 +1732,15 @@ class Shotset(object):
         ----------
         filename : str
             The path to the shotset file to save.
+            
+        overwrite : bool
+            If False, cannot overwrite a file already on disk.
         """
 
         if not filename.endswith('.shot'):
             filename += '.shot'
             
-        if os.path.exists(filename):
+        if os.path.exists(filename) and (not overwrite):
             raise IOError('File: %s already exists! Aborting...' % filename)
 
         # if we don't have a mask, just save a single zero
@@ -2863,7 +2869,7 @@ class Rings(object):
         return cls(q_values, polar_intensities, k, polar_mask=None)
 
 
-    def save(self, filename):
+    def save(self, filename, overwrite=False):
         """
         Saves the Rings object to disk.
 
@@ -2872,12 +2878,15 @@ class Rings(object):
         filename : str
             The name of the file to write to disk. Must end in '.ring' -- if you
             don't put this, it will be automatically added.
+            
+        overwrite : bool
+            If False, cannot overwrite a file already on disk.
         """
 
         if not filename.endswith('.ring'):
             filename += '.ring'
             
-        if os.path.exists(filename):
+        if os.path.exists(filename) and (not overwrite):
             raise IOError('File: %s already exists! Aborting...' % filename)
 
         # if self.polar_mask == None, then save a single 0
