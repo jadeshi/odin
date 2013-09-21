@@ -65,7 +65,7 @@ class Beam(object):
     self.wavenumber  (angular, inv. angstroms)
     """
 
-    def __init__(self, photons_scattered_per_shot, **kwargs):
+    def __init__(self, photons_scattered_per_shot=None, **kwargs):
         """
         Generate an instance of the Beam class.
 
@@ -1937,8 +1937,9 @@ class Shotset(object):
         get that data into Odin.
         
         File formats currently supported:
-            -- .cbf (crystallographic binary files)
-            -- .edf (ESRF data format)
+            -- .cbf  (crystallographic binary files)
+            -- .edf  (ESRF data format)
+            -- .tiff (tagged image file format)
         
         Parameters
         ----------
@@ -1964,7 +1965,7 @@ class Shotset(object):
             The shotset object.
         """
         
-        understood_extensions = ['cbf', 'edf']
+        understood_extensions = ['cbf', 'edf', 'tiff', 'tif']
         
         # determine the filetype of the files
         extension = list_of_files[0].split('.')[-1]
@@ -1984,6 +1985,8 @@ class Shotset(object):
                 reader = parse.CBF
             elif extension == 'edf':
                 reader = parse.EDF
+            elif extension in ['tif', 'tiff']:
+                reader = parse.TIFF
             else:
                 raise RuntimeError('internal consistency error: understood_extensions')
                 
@@ -2375,15 +2378,15 @@ class Rings(object):
         return int(q_ind)
 
 
-    def depolarize(self, xaxis_polarization):
+    def correct_polarization(self, yaxis_polarization):
         """
         Applies a polarization correction to the rings.
         
         Parameters
         ----------
-        xaxis_polarization : float
-            The fraction of the beam polarization in the horizontal/x plane.
-            For synchrotron sources, this is the ''in-plane'' polarization.
+        yaxis_polarization : float
+            The fraction of the beam polarization in the vertical/y plane.
+            For synchrotron sources, this is the ''out-of-plane'' polarization.
             
         Citations
         ---------
@@ -2391,23 +2394,23 @@ class Rings(object):
         ..[2] Jackson. Classical Electrostatics.
         """
         
-        logger.info('Applying polarization correction w/P_x=%.3f' % xaxis_polarization)
-        if (xaxis_polarization > 1.0) or (xaxis_polarization < 0.0):
+        logger.info('Applying polarization correction w/P_y=%.3f' % yaxis_polarization)
+        if (yaxis_polarization > 1.0) or (yaxis_polarization < 0.0):
             raise ValueError('Polarization cannot be greater than 100%! Got '
-                             '`xaxis_polarization` value of %.3f' % xaxis_polarization)
+                             '`yaxis_polarization` value of %.3f' % yaxis_polarization)
 
         correctn = np.zeros((self.num_q, self.num_phi))
 
         for i,q in enumerate(self.q_values):
             theta     = np.arcsin( q / (2.0 * self.k) )
             sin_theta = np.sin(2.0 * theta)
-            correctn[i,:]  = (1.-xaxis_polarization) * \
+            correctn[i,:]  = (1.-yaxis_polarization) * \
                              ( 1. - np.square(sin_theta * np.cos(self.phi_values)) ) + \
-                             xaxis_polarization  * \
+                             yaxis_polarization  * \
                              ( 1. - np.square(sin_theta * np.sin(self.phi_values)) )
             
         for pi in self.polar_intensities_iter:
-            pi[:,:] *= correctn[:,:]
+            pi[:,:] /= correctn[:,:]
 
         return
     
