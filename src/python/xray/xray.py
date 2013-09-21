@@ -7,7 +7,7 @@ Classes, methods, functions for use with xray scattering experiments.
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
-logger.setLevel('DEBUG')
+#logger.setLevel('DEBUG')
 
 import os
 import cPickle
