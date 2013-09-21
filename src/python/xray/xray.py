@@ -7,7 +7,7 @@ Classes, methods, functions for use with xray scattering experiments.
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
-#logger.setLevel('DEBUG')
+logger.setLevel('DEBUG')
 
 import os
 import cPickle
@@ -42,6 +42,8 @@ except ImportError as e:
     logger.debug(e)
     logger.debug('Could not import pyfftw -- constructing Rings._fft_correlate from np.fft')
     PYFFTW_INSTALLED = False
+    
+FORCE_NO_FFTW = False # mostly for testing
 
 # ------------------------------------------------------------------------------
 # FUNDAMENTAL CONSTANTS
@@ -2034,7 +2036,7 @@ class Rings(object):
     """
 
     def __init__(self, q_values, polar_intensities, k, polar_mask=None,
-                 filters=[], num_procs=0):
+                 filters=[], num_procs=0, batch_size=64):
         """
         Interpolate our cartesian-based measurements into a polar coordiante
         system.
@@ -2110,12 +2112,14 @@ class Rings(object):
         self._q_values = np.array(q_values)  # q values of the ring data
         self.k         = k                   # wave number
 
-        self._initialize_fft_correlate()
-        self._batch_size = 128 # number of shots to load then FFT
+        # initialize FFT correlation code -- we'll use pyFFTW if available,
+        # otherwise default to numpy's FFTpack implementation
+        self._batch_size = batch_size # number of shots to load then FFT
         if num_procs == 0:
             self.num_procs = multiprocessing.cpu_count()
         else:
             self.num_procs = int(num_procs)
+        self._initialize_fft_correlate()
 
         return
     
@@ -2133,16 +2137,20 @@ class Rings(object):
         installed, and otherwise just use numpy's fftpack wrappers.
         """
         
-        if PYFFTW_INSTALLED:
+        if FORCE_NO_FFTW:
+            logger.warning('FORCE_NO_FFTW is set to TRUE, not using FFTW')
+        
+        if PYFFTW_INSTALLED and (not FORCE_NO_FFTW):
+            logger.debug('Using pyfftw/FFTW backend for FFTs')
             
-            finp = pyfftw.n_byte_align_empty((self._batch_size, self.num_pixels), 8, 'float64')
-            fout = pyfftw.n_byte_align_empty((self._batch_size, self.num_pixels/2 + 1), 16, 'complex128')
+            finp = pyfftw.n_byte_align_empty((self._batch_size, self.num_phi), 8, 'float64')
+            fout = pyfftw.n_byte_align_empty((self._batch_size, self.num_phi/2 + 1), 16, 'complex128')
             fft_fwd = pyfftw.FFTW(finp, fout, direction='FFTW_FORWARD', 
                                   flags=('FFTW_MEASURE',), 
                                   threads=self.num_procs)
                                   
-            bout = pyfftw.n_byte_align_empty((self._batch_size, self.num_pixels), 8, 'float64')
-            binp = pyfftw.n_byte_align_empty((self._batch_size, self.num_pixels/2 + 1), 16, 'complex128')
+            bout = pyfftw.n_byte_align_empty((self._batch_size, self.num_phi), 8, 'float64')
+            binp = pyfftw.n_byte_align_empty((self._batch_size, self.num_phi/2 + 1), 16, 'complex128')
             fft_bck = pyfftw.FFTW(binp, bout, direction='FFTW_BACKWARD', 
                                   flags=('FFTW_MEASURE',),
                                   threads=self.num_procs)
@@ -2170,11 +2178,13 @@ class Rings(object):
             
         else: # not PYFFTW_INSTALLED, use np ffts
             
+            logger.debug('Using numpy/fftpack backend for FFTs')
+            
             def fxn(a, b):
                 # n = how big the array is
-                ffx  = np.fft.rfft(a, n=a.shape[0], axis=1)
-                ffy  = np.fft.rfft(b, n=b.shape[0], axis=1)
-                return np.fft.irfft( ffx * np.conjugate(ffy), n=a.shape[0], axis=1)
+                ffx  = np.fft.rfft(a, n=a.shape[1], axis=1)
+                ffy  = np.fft.rfft(b, n=b.shape[1], axis=1)
+                return np.fft.irfft( ffx * np.conjugate(ffy), n=a.shape[1], axis=1)
             
         self._fft_correlate_base = fxn
         
@@ -2184,7 +2194,7 @@ class Rings(object):
     def _fft_correlate(self, a, b):
         """
         Correlate two read arrays, `a` and `b`, using the fast Fourier transform.
-        These arrrays should already be mean subtracted!
+        These arrays should already be mean subtracted!
 
         Parameters
         ----------
@@ -2198,18 +2208,18 @@ class Rings(object):
             The correlation function, Corr(a,b). Unnormalized.
         """
         
-        if (not a.shape == (self._batch_size, self.num_pixels)) or \
-           (not b.shape == (self._batch_size, self.num_pixels)):
+        if (not a.shape == (self._batch_size, self.num_phi)) or \
+           (not b.shape == (self._batch_size, self.num_phi)):
            
            raise RuntimeError('`a` or `b` passed to _fft_correlate has the '
                               'incorrect shape. Should be %s, is a=%s/b=%s' % \
-                                  ( str((self._batch_size, self.num_pixels)), 
+                                  ( str((self._batch_size, self.num_phi)), 
                                     str(a.shape), str(b.shape)) )
                                     
-        return _fft_correlate_base(a, b)
+        return self._fft_correlate_base(a, b)
     
         
-    def _fft_correlate_base(a, b):
+    def _fft_correlate_base(self, a, b):
         """
         # this is just a placeholder -- the actual function gets monkey patched
         # by Rings._initialize_fft_correlate()
@@ -2257,6 +2267,39 @@ class Rings(object):
         # yield the filtered result
         for x in pi_iter:
             yield self._filter_intensities(x)
+            
+    @property
+    def _polar_intensities_batch_iter(self):
+        """
+        Yields blocks of shots, with `batch_size` shots in each block. 
+        
+        Useful if batch processing of shot data can yield a speedup, as in e.g.
+        the correlate_intra/inter functions. Note this always yeilds a block of
+        the expected size, even when that block is bigger than the number of
+        shots.
+        
+        Parameters
+        ----------
+        batch_size : int
+            The number of shots to include in each batch.
+            
+        Yields
+        -------
+        shot_data : ndarray, float
+            A shape (`batch_size` x `phi_values`) array of polar intensities.
+        """
+        
+        num_batches = (self.num_shots / self._batch_size) + 1
+        shot_data = np.zeros((self._batch_size, self.num_q, self.num_phi))
+        
+        for i in range(num_batches):
+            start = i * self._batch_size
+            stop  = min(self.num_shots, (i+1) * self._batch_size)
+            if self._polar_intensities_type == 'array':
+                shot_data[:stop-start] = self._polar_intensities[start:stop]
+            elif self._polar_intensities_type == 'tables':
+                shot_data[:stop-start] = self._polar_intensities.read(start, stop)
+            yield shot_data
             
             
     def _filter_intensities(self, intensities):
@@ -2479,13 +2522,13 @@ class Rings(object):
         if num_shots == 0: # then do correlation for all shots
             num_shots = self.num_shots
             
-        # generate an output space
+        # allocate an output space
         if mean_only:
             intra = np.zeros(self.num_phi)
         else:
             intra = np.zeros((num_shots, self.num_phi))
 
-        # Check if mask exists
+        # check if mask exists
         if self.polar_mask != None:
             mask1 = self.polar_mask[q_ind1,:]
             mask2 = self.polar_mask[q_ind2,:]
@@ -2499,25 +2542,45 @@ class Rings(object):
             var2 = 0.0
         
         logger.info('Correlating shots...')
-        for i,pi in enumerate(self.polar_intensities_iter):
-
-            logger.info(utils.logger_return + 'Correlating shot %d/%d' % (i+1, num_shots))
+        for i,pi in enumerate(self._polar_intensities_batch_iter):
             
-            rings1 = pi[q_ind1,:]
-            rings2 = pi[q_ind2,:]
+            print i, pi.shape
+            
+            # compute which shots we're processing
+            start_i = i * self._batch_size
+            stop_i  = (i+1) * self._batch_size
+            
+            logger.debug('Batch start/stop: %d/%d' % (start_i, stop_i))
+            
+            # stop if we have a batch > num_shots (also avoid including zero pads)
+            if stop_i > num_shots:
+                trunc = num_shots - start_i
+                logger.debug('Truncating batch to %d rows\n' % trunc)
+                assert trunc > 0
+            else:
+                trunc = self._batch_size
+
+            # perform the correlation calculation
+            logger.info(utils.logger_return + 'Correlating shot %d/'
+                        '%d' % (i * self._batch_size + 1, num_shots))
+            
+            rings1 = pi[:,q_ind1,:]
+            rings2 = pi[:,q_ind2,:]
             
             if mean_only:
                 intra += self._correlate_rows(rings1, rings2, mask1, mask2,
-                                              use_fft=use_fft)
+                                              use_fft=use_fft)[:trunc,:].mean(axis=0)
             else:
-                intra[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2,
-                                                  use_fft=use_fft)
+                intra[start_i:stop_i,:] = self._correlate_rows(rings1, rings2, 
+                                                               mask1, mask2,
+                                                               use_fft=use_fft)[:trunc,:]
             
             if normed:
-                var1 += np.var( rings1[mask1] )
-                var2 += np.var( rings2[mask2] )
+                # note: if no mask, indexing with [None] should not affect below
+                var1 += np.var( rings1[:trunc,mask1] )
+                var2 += np.var( rings2[:trunc,mask2] )
                 
-            if i == num_shots - 1:
+            if i >= num_shots - 1:
                 break
                 
         if mean_only:
@@ -2641,6 +2704,7 @@ class Rings(object):
             # normalize -- dont touch this! -- TJL
             inter /= float(np.sum([(self.num_shots-k) for k in range(1,break_n+1)])) 
             inter /= float(self.num_shots) / 2.0
+            # ------------------------------------
             
             if normed:
                 inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
@@ -2685,16 +2749,14 @@ class Rings(object):
                 inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
                     
         logger.info('... complete')
-            
-
-            #assert inter.max() <=  1.0
-            #assert inter.min() >= -1.0
+        
+        #assert inter.max() <=  1.0
+        #assert inter.min() >= -1.0
 
         return inter
         
         
-    @staticmethod
-    def _correlate_rows(x, y, x_mask=None, y_mask=None, use_fft=True):
+    def _correlate_rows(self, x, y, x_mask=None, y_mask=None, use_fft=True):
         """
         Compute the (unnormalized) circular correlation function across the rows
         of x,y. The correlation functions are computed using the fluctuations
@@ -2781,7 +2843,8 @@ class Rings(object):
         y_bar = y.mean(axis=1)[:,None]
         
         if use_fft: # use d-FFT + convolution thm
-            corr = self._fft_correlate(a, b)
+            corr = self._fft_correlate((x - x_bar) * xm, (y - y_bar) * ym)
+            print 'TYPES', x.shape, corr.shape
             
         else:       # use C++ brute force implementation
             corr = np.zeros((n_row, n_col))
