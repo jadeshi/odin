@@ -2157,15 +2157,38 @@ class Rings(object):
                                   
             def fxn(a, b):
                 
+                if not a.dtype == np.float64:
+                    a = a.astype(np.float64)
+                if not b.dtype == np.float64:
+                    b = b.astype(np.float64)
+
+                if not a.shape == b.shape:
+                    raise ValueError('`a` and `b` arrays must have same shape'
+                                     '! Passed: a=%s/b=%s' % (str(a.shape), str(b.shape)))
+
+                if (a.shape[0] > self._batch_size) or (b.shape[0] > self._batch_size):
+                    raise RuntimeError('Array `a` or `b` too large in dim 0 for'
+                                       ' allocated FFT arrays. Increase '
+                                       'Rings._batch_size and re-run '
+                                       'Rings._initialize_fft_correlate() to '
+                                       'increase the size of the memory allocation.')
+                
+                # we have to allocate a static memory size above for max
+                # efficiency. just use zero padding and crop it out if our
+                # input array is too small. the cost will be negligable
+                pad = np.zeros((self._batch_size - a.shape[0], a.shape[1]))
+                logger.debug('Pad size: %d, shape: %s' % (self._batch_size - a.shape[0], str(pad.shape)))
+                #assert np.vstack((a, pad)).shape == (self._batch_size, self.num_phi)
+                                   
                 # transform & conj first array
-                finp[:] = a
+                finp[:] = np.vstack((a, pad))
                 fft_fwd(finp, fout)
                 binp = fout.copy()
                 binp = np.conjugate(binp)
                 
                 # transform second array
-                finp[:] = b
-                fft_fwd(b, fout)
+                finp[:] = np.vstack((b, pad))
+                fft_fwd(finp, fout)
                 
                 # convolve
                 binp *= fout
@@ -2173,7 +2196,8 @@ class Rings(object):
                 # inv FT
                 fft_bck(binp, bout)
                 
-                return bout.copy()
+                corr = bout.copy()[:a.shape[0],:]
+                return corr
                 
             
         else: # not PYFFTW_INSTALLED, use np ffts
@@ -2186,7 +2210,7 @@ class Rings(object):
                 ffy  = np.fft.rfft(b, n=b.shape[1], axis=1)
                 return np.fft.irfft( ffx * np.conjugate(ffy), n=a.shape[1], axis=1)
             
-        self._fft_correlate_base = fxn
+        self._fft_correlate = fxn # inject the function
         
         return
     
@@ -2208,24 +2232,12 @@ class Rings(object):
             The correlation function, Corr(a,b). Unnormalized.
         """
         
-        if (not a.shape == (self._batch_size, self.num_phi)) or \
-           (not b.shape == (self._batch_size, self.num_phi)):
-           
-           raise RuntimeError('`a` or `b` passed to _fft_correlate has the '
-                              'incorrect shape. Should be %s, is a=%s/b=%s' % \
-                                  ( str((self._batch_size, self.num_phi)), 
-                                    str(a.shape), str(b.shape)) )
-                                    
-        return self._fft_correlate_base(a, b)
-    
-        
-    def _fft_correlate_base(self, a, b):
-        """
         # this is just a placeholder -- the actual function gets monkey patched
-        # by Rings._initialize_fft_correlate()
-        """
+        # by Rings._initialize_fft_correlate() -- the below should never run
+        
         raise RuntimeError('Class initialization failed -- '
                            'Rings._initialize_fft_correlate() never ran.')
+                                    
         return
     
         
@@ -2239,7 +2251,7 @@ class Rings(object):
         else:
             raise RuntimeError('incorrect type in self._intensities')
         return type_str
-
+    
 
     @property
     def polar_intensities(self):
@@ -2267,6 +2279,7 @@ class Rings(object):
         # yield the filtered result
         for x in pi_iter:
             yield self._filter_intensities(x)
+    
             
     @property
     def _polar_intensities_batch_iter(self):
@@ -2300,7 +2313,7 @@ class Rings(object):
             elif self._polar_intensities_type == 'tables':
                 shot_data[:stop-start] = self._polar_intensities.read(start, stop)
             yield shot_data
-            
+    
             
     def _filter_intensities(self, intensities):
         """
@@ -2321,7 +2334,7 @@ class Rings(object):
             for flt in self._intensity_filters:
                 intensities = flt(intensities)
         return intensities
-
+    
 
     def _add_intensity_filter(self, flt):
         """
@@ -2337,27 +2350,27 @@ class Rings(object):
     @property
     def num_shots(self):
         return self._polar_intensities.shape[0]
-
+    
 
     @property
     def phi_values(self):
         return np.arange(0, 2.0*np.pi, 2.0*np.pi/float(self.num_phi))
-
+    
 
     @property
     def q_values(self):
         return self._q_values
-
+    
 
     @property
     def num_phi(self):
         return self._polar_intensities.shape[2]
-
+    
 
     @property
     def num_q(self):
         return len(self._q_values)
-
+    
 
     @property
     def num_datapoints(self):
@@ -2544,8 +2557,6 @@ class Rings(object):
         logger.info('Correlating shots...')
         for i,pi in enumerate(self._polar_intensities_batch_iter):
             
-            print i, pi.shape
-            
             # compute which shots we're processing
             start_i = i * self._batch_size
             stop_i  = (i+1) * self._batch_size
@@ -2653,7 +2664,7 @@ class Rings(object):
         # correlator (order N)
         
         # use order N method: correlate vs. mean
-        logger.info('Correlating intra...')
+        logger.info('Correlating inter...')
         if mean_only:
             logger.debug('mean only')
             
@@ -2682,38 +2693,68 @@ class Rings(object):
                 if n == break_n:
                     logger.info('%d shots reached, breaking first loop' % n)
                     break
-                if normed: ring1_var[n] = np.var(itx[q_ind1,:])
+                #if normed: ring1_var[n] = np.var(itx[q_ind1,:])
                 total += itx[q_ind1,:]
             
             # second loop -- compute inter correlators
-            for n,itx in enumerate(self.polar_intensities_iter):
+            total = total[None,:] # expand to 2d (initalization for below)
+            for n,itx in enumerate(self._polar_intensities_batch_iter):
+
+                # compute which shots we're processing
+                start_i = n * self._batch_size
+                stop_i  = (n+1) * self._batch_size
+
+                logger.debug('Batch start/stop: %d/%d' % (start_i, stop_i))
+
+                # stop if we have a batch > num_shots (also avoid including zero pads)
+                if stop_i > break_n:
+                    trunc = break_n - start_i
+                    logger.debug('Truncating batch to %d rows\n' % trunc)
+                    assert trunc > 0
+                else:
+                    trunc = self._batch_size
+            
                 logger.info(utils.logger_return + 'Correlating shot %d/%d w/all others' % (n+1, break_n))
-                if n == break_n:
-                    logger.info('%d shots reached, breaking second loop' % n)
-                    break
+
+                # rip out the relevant rings
+                rings1 = itx[:trunc,q_ind1,:]
+                rings2 = itx[:trunc,q_ind2,:]
                 
-                total -= itx[q_ind1,:]
-                rings2 = itx[q_ind2,:].copy()
+                # subtract the relevant rings
+                total  = total[-1,:][None,:] * np.ones((trunc, self.num_phi))
+                total -= np.cumsum(rings1, axis=0)
+                
+                # actually do the correlations
                 inter += self._correlate_rows(total, rings2, mask1, mask2,
-                                              use_fft=use_fft)
+                                              use_fft=use_fft)[:trunc,:].mean(axis=0)
                 
                 if normed:
-                    var1 += np.sum( ring1_var[n+1:] )
-                    var2 += np.var( rings2[mask2] )
+                    #var1 += np.sum( ring1_var[start_i+1:stop_i+1] )
+                    var1 += np.var( rings1[:,mask1] )
+                    var2 += np.var( rings2[:,mask2] )
+
+                # decide when to end
+                if stop_i >= break_n:
+                    logger.info('%d shots reached, breaking second loop' % n)
+                    break
                     
-            # normalize -- dont touch this! -- TJL
+            # normalize -- dont touch this! -- TJL -----------------------------
             inter /= float(np.sum([(self.num_shots-k) for k in range(1,break_n+1)])) 
-            inter /= float(self.num_shots) / 2.0
-            # ------------------------------------
+            inter /= float(self.num_shots) / 4.0
+            
             
             if normed:
                 inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
-                inter /= np.sqrt( (self.num_shots - 1.0) / 2.0 )
+                inter /= np.sqrt( (self.num_shots - 1.0) )
+                
+                # n_pairs = factorial(self.num_shots - 1) / factorial(self.num_shots - break_n - 2)
+                # inter /= (n_pairs - 1) * np.sqrt(var1 * var2)
+            # ------------------------------------------------------------------
 
             
         # draw random pairs
         else:
-            logger.debug('mean only')
+            logger.debug('\nmean only')
             
             if (num_pairs == 0) or (num_pairs >= max_pairs):
                 inter_pairs = utils.all_pairs(self.num_shots)
@@ -2726,7 +2767,7 @@ class Rings(object):
 
             for k,(i,j) in enumerate(inter_pairs):
             
-                logger.info(utils.logger_return + 'Correlating intra pair %d/%d' % (k+1, num_pairs))
+                logger.info(utils.logger_return + 'Correlating inter pair %d/%d' % (k+1, num_pairs))
             
                 if self._polar_intensities_type == 'array':
                     rings1 = self._polar_intensities[i,q_ind1,:]
@@ -2844,7 +2885,6 @@ class Rings(object):
         
         if use_fft: # use d-FFT + convolution thm
             corr = self._fft_correlate((x - x_bar) * xm, (y - y_bar) * ym)
-            print 'TYPES', x.shape, corr.shape
             
         else:       # use C++ brute force implementation
             corr = np.zeros((n_row, n_col))
