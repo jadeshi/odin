@@ -16,6 +16,7 @@ import multiprocessing
 
 import numpy as np
 from scipy.special import legendre
+from scipy import stats
 from scipy import interpolate as sciinterp
 from scipy.ndimage import filters
 from scipy.ndimage import interpolation as ndinterp
@@ -2994,6 +2995,80 @@ class Rings(object):
                 Cl[:,j,i] = c  # copy it to the lower triangle too
 
         return Cl
+        
+        
+    def correlation_significance(self, q1, q2, max_samples=None, 
+                                 intra=None, inter=None):
+        """
+        Perform a two-way Hotelling T^2 test (multivariate Student's t-test)
+        to assess if the means of intra/inter correlators between two q-values
+        are significantly different.
+        
+        This function computes intra- and inter-correlators between two rings,
+        normalizes and centers those data, and then performs a multivariate
+        two-way T^2 test for significant difference between the means of those
+        two samples. Returned is a two-way p-value for significance.
+        
+        Parameters
+        ----------
+        q1 / q2 : float
+            The q-values of the first and second ring to correlate.
+            
+        max_samples : int
+            The maximium number of samples to compute. If `None`, will compute
+            all intra correlators and an equal number of inter correlators.
+        
+        Optional Parameters
+        -------------------
+        intra/inter : ndarray, float
+            Pre-computed intra or inter samples between q1 and q2. Simply to
+            save time if you have these values already on hand.
+            
+        Returns
+        -------
+        p_value : float
+            The two-tailed p-value. Less than 0.05 usually is taken to indicate
+            significant deviation between the means.
+        
+        References
+        ----------
+        ..[1] https://en.wikipedia.org/wiki/Hotelling%27s_T-squared_distribution
+        ..[2] https://en.wikipedia.org/wiki/Student's_t-test
+        """
+        
+        if max_samples == None:
+            max_samples = self.num_shots
+
+        # if not already computed, get the correlators
+        if intra == None:
+            intra = self.correlate_intra(q1, q2, mean_only=False, num_shots=max_samples)
+        if inter == None:
+            inter = self.correlate_inter(q1, q2, mean_only=False, num_pairs=max_samples)
+        
+        # center the data
+        intra -= intra.mean(axis=1)[:,None]
+        inter -= inter.mean(axis=1)[:,None]
+
+        # perform the test
+        n_x = intra.shape[0]
+        n_y = inter.shape[0]
+        
+        p = intra.shape[1] # dim of the data
+        
+        mu_x = intra.mean(axis=0)
+        mu_y = inter.mean(axis=0)
+        mu_d = mu_x - mu_y
+        
+        S = np.cov( np.vstack((intra, inter)).T )
+        Sinv = np.linalg.inv(S)
+        
+        t_sqd = ((n_x * n_y) / (n_x + n_y)) * np.dot(mu_d, np.dot(Sinv, mu_d))
+        f = float(n_x + n_y - p - 1) / float((n_x + n_y - 2)*p) * t_sqd
+        
+        rv = stats.f(p, n_x + n_y - 1 - p)
+        p_value = float(rv.cdf(f) * 2.0) # two-tailed
+
+        return p_value
 
 
     @classmethod
