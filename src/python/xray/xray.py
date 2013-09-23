@@ -23,6 +23,7 @@ from odin import math2
 from odin import utils
 from odin.xray import scatter
 from odin.xray import parse
+from odin.xray import write
 from odin.corr import correlate as brute_correlate
 
 from mdtraj import io
@@ -1769,6 +1770,25 @@ class Shotset(object):
 
         logger.info('Wrote %s to disk.' % filename)
 
+        return
+        
+        
+    def save_as_cxi(self, filename, sample_name='odinshotset'):
+        """
+        Write a shotset to disk in CXIdb format.
+
+        Parameters
+        ----------
+        filename : str
+            The name of the file!
+            
+        Optional Parameters
+        -------------------
+        sample_name : str
+            The name of the sample, to aid future researchers
+        """
+        write.write_cxidb(filename, self, sample_name='odinshotset')
+        logger.info('Wrote CXIdb file: %s' % filename)
         return
 
 
