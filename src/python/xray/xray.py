@@ -3004,10 +3004,10 @@ class Rings(object):
         to assess if the means of intra/inter correlators between two q-values
         are significantly different.
         
-        This function computes intra- and inter-correlators between two rings,
-        normalizes and centers those data, and then performs a multivariate
-        two-way T^2 test for significant difference between the means of those
-        two samples. Returned is a two-way p-value for significance.
+        This function computes intra- and inter-correlators between two rings
+        and then performs a multivariate two-way T^2 test for significant 
+        difference between the means of those two samples. Returned is a two-
+        tailed p-value for significance.
         
         Parameters
         ----------
@@ -3045,28 +3045,55 @@ class Rings(object):
         if inter == None:
             inter = self.correlate_inter(q1, q2, mean_only=False, num_pairs=max_samples)
         
+        assert intra.shape[1] == inter.shape[1]
+        
         # center the data
-        intra -= intra.mean(axis=1)[:,None]
-        inter -= inter.mean(axis=1)[:,None]
+        #intra -= intra.mean(axis=1)[:,None]
+        #inter -= inter.mean(axis=1)[:,None]
 
         # perform the test
-        n_x = intra.shape[0]
-        n_y = inter.shape[0]
+        n_x = float(intra.shape[0])
+        n_y = float(inter.shape[0])
         
-        p = intra.shape[1] # dim of the data
+        p = float(intra.shape[1]) # dim of the data
         
         mu_x = intra.mean(axis=0)
         mu_y = inter.mean(axis=0)
         mu_d = mu_x - mu_y
         
-        S = np.cov( np.vstack((intra, inter)).T )
-        Sinv = np.linalg.inv(S)
+        if intra.shape[1] > 1:
+            # next line: correct from np normalization
+            W = (np.cov( intra.T ) * n_x + np.cov( inter.T ) * n_y) / (n_x + n_y - 2)
+            try:
+                Winv = np.linalg.inv(W)
+            except Exception as e:
+                logger.warning(e)
+                raise RuntimeError('Could not invert covariance matrix for T^2'
+                                   ' test. Try increasing the number of samples'
+                                   ' (shots) and/or decreasing the data '
+                                   'dimensionality (num_phi), which should '
+                                   'increase the estimator stability, and try'
+                                   ' again.')
+        elif intra.shape[1] == 1:
+            print "here"
+            W = ( np.var(intra) * n_x + np.var(inter) * n_y ) / (n_x + n_y - 2)
+            Winv = 1.0 / W
+            logger.info('%f %f', mu_d, Winv)
+        else:
+            raise ValueError('intra/inter arrays must be 2d')
         
-        t_sqd = ((n_x * n_y) / (n_x + n_y)) * np.dot(mu_d, np.dot(Sinv, mu_d))
-        f = float(n_x + n_y - p - 1) / float((n_x + n_y - 2)*p) * t_sqd
+        t_sqd = ((n_x * n_y) / (n_x + n_y)) * np.dot(mu_d.T, np.dot(Winv, mu_d))
+        f = (n_x + n_y - p - 1) / ((n_x + n_y - 2)*p) * t_sqd
         
         rv = stats.f(p, n_x + n_y - 1 - p)
-        p_value = float(rv.cdf(f) * 2.0) # two-tailed
+        
+        # I have the sf (1-CDF) on the next line -- appears to work, but orig
+        # I thought this should have been just the CDF. Shrug. --TJL
+        p_value = float(rv.sf(f)) # two-tailed by checking against scipy (shrug #2)
+
+        if (p_value > 2.0) or (p_value < 0.0):
+            raise RuntimeError('Invalid p_value determined (%f): out of bounds.'
+                               ' Check input.' % p_value)
 
         return p_value
 
