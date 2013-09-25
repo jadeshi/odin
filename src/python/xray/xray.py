@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 import os
 import cPickle
 import tables
+import multiprocessing
 
 import numpy as np
 from scipy.special import legendre
+from scipy import stats
 from scipy import interpolate as sciinterp
 from scipy.ndimage import filters
 from scipy.ndimage import interpolation as ndinterp
@@ -23,10 +25,27 @@ from odin import math2
 from odin import utils
 from odin.xray import scatter
 from odin.xray import parse
+from odin.xray import write
+from odin.corr import correlate as brute_correlate
 
 from mdtraj import io
 from mdtraj.utils.arrays import ensure_type
 
+# ------------------------------------------------------------------------------
+# SPECIAL IMPORT FOR PYFFTW
+# Try to import pyfftw, and if it works, use it to construct a fft_correlate
+# function. Otherwise use numpy's fftpack wrapper.
+
+try:
+    import pyfftw
+    logger.debug('pyfftw import successful -- constructing Rings._fft_correlate from pyfftw')
+    PYFFTW_INSTALLED = True
+except ImportError as e:
+    logger.debug(e)
+    logger.debug('Could not import pyfftw -- constructing Rings._fft_correlate from np.fft')
+    PYFFTW_INSTALLED = False
+    
+FORCE_NO_FFTW = False # mostly for testing
 
 # ------------------------------------------------------------------------------
 # FUNDAMENTAL CONSTANTS
@@ -50,7 +69,7 @@ class Beam(object):
     self.wavenumber  (angular, inv. angstroms)
     """
 
-    def __init__(self, photons_scattered_per_shot, **kwargs):
+    def __init__(self, photons_scattered_per_shot=None, **kwargs):
         """
         Generate an instance of the Beam class.
 
@@ -850,7 +869,7 @@ class Detector(Beam):
         return d
 
 
-    def save(self, filename):
+    def save(self, filename, overwrite=False):
         """
         Writes the current Detector to disk.
 
@@ -858,12 +877,15 @@ class Detector(Beam):
         ----------
         filename : str
             The path to the shotset file to save.
+            
+        overwrite : bool
+            If False, cannot overwrite a file already on disk.
         """
 
         if not filename.endswith('.dtc'):
             filename += '.dtc'
             
-        if os.path.exists(filename):
+        if os.path.exists(filename) and (not overwrite):
             raise IOError('File: %s already exists! Aborting...' % filename)
 
         io.saveh(filename, detector=self._to_serial())
@@ -1412,12 +1434,13 @@ class Shotset(object):
         # --- loop over shots
         #     actually do the interpolation
 
+        logger.info('Interpolating shots...')
         for shot,intensities in enumerate(self.intensities_iter):
             
             int_start  = 0 # start of intensity array correpsonding to `grid`
             int_end    = 0 # end of intensity array correpsonding to `grid`
             
-            logger.info('interpolating shot %d/%d' % (shot+1, self.num_shots))
+            logger.info(utils.logger_return + 'interpolating shot %d/%d' % (shot+1, self.num_shots))
             shot_pi = np.zeros(num_q * num_phi)
             
             for g in range(self.detector._basis_grid.num_grids):
@@ -1451,6 +1474,7 @@ class Shotset(object):
             
             polar_intensities_output.append( shot_pi.reshape(1, num_q, num_phi) )
             
+        logger.info('... complete')
             
         return polar_mask
 
@@ -1718,7 +1742,7 @@ class Shotset(object):
         return ret_val
 
 
-    def save(self, filename):
+    def save(self, filename, overwrite=False):
         """
         Writes the current Shotset data to disk.
 
@@ -1726,12 +1750,15 @@ class Shotset(object):
         ----------
         filename : str
             The path to the shotset file to save.
+            
+        overwrite : bool
+            If False, cannot overwrite a file already on disk.
         """
 
         if not filename.endswith('.shot'):
             filename += '.shot'
             
-        if os.path.exists(filename):
+        if os.path.exists(filename) and (not overwrite):
             raise IOError('File: %s already exists! Aborting...' % filename)
 
         # if we don't have a mask, just save a single zero
@@ -1760,6 +1787,25 @@ class Shotset(object):
 
         logger.info('Wrote %s to disk.' % filename)
 
+        return
+        
+        
+    def save_as_cxi(self, filename, sample_name='odinshotset'):
+        """
+        Write a shotset to disk in CXIdb format.
+
+        Parameters
+        ----------
+        filename : str
+            The name of the file!
+            
+        Optional Parameters
+        -------------------
+        sample_name : str
+            The name of the sample, to aid future researchers
+        """
+        write.write_cxidb(filename, self, sample_name='odinshotset')
+        logger.info('Wrote CXIdb file: %s' % filename)
         return
 
 
@@ -1920,8 +1966,9 @@ class Shotset(object):
         get that data into Odin.
         
         File formats currently supported:
-            -- .cbf (crystallographic binary files)
-            -- .edf (ESRF data format)
+            -- .cbf  (crystallographic binary files)
+            -- .edf  (ESRF data format)
+            -- .tiff (tagged image file format)
         
         Parameters
         ----------
@@ -1947,7 +1994,7 @@ class Shotset(object):
             The shotset object.
         """
         
-        understood_extensions = ['cbf', 'edf']
+        understood_extensions = ['cbf', 'edf', 'tiff', 'tif']
         
         # determine the filetype of the files
         extension = list_of_files[0].split('.')[-1]
@@ -1967,6 +2014,8 @@ class Shotset(object):
                 reader = parse.CBF
             elif extension == 'edf':
                 reader = parse.EDF
+            elif extension in ['tif', 'tiff']:
+                reader = parse.TIFF
             else:
                 raise RuntimeError('internal consistency error: understood_extensions')
                 
@@ -2014,7 +2063,7 @@ class Rings(object):
     """
 
     def __init__(self, q_values, polar_intensities, k, polar_mask=None,
-                 filters=[]):
+                 filters=[], num_procs=0, batch_size=64):
         """
         Interpolate our cartesian-based measurements into a polar coordiante
         system.
@@ -2090,6 +2139,15 @@ class Rings(object):
         self._q_values = np.array(q_values)  # q values of the ring data
         self.k         = k                   # wave number
 
+        # initialize FFT correlation code -- we'll use pyFFTW if available,
+        # otherwise default to numpy's FFTpack implementation
+        self._batch_size = batch_size # number of shots to load then FFT
+        if num_procs == 0:
+            self.num_procs = multiprocessing.cpu_count()
+        else:
+            self.num_procs = int(num_procs)
+        self._initialize_fft_correlate()
+
         return
     
         
@@ -2097,6 +2155,116 @@ class Rings(object):
         if hasattr(self, '_hdf'):
             if self._hdf:
                 self._hdf.close()
+        return
+        
+        
+    def _initialize_fft_correlate(self):
+        """
+        Monkey patch the _fft_correlate_base() method, using pyfftw (fast) if it's
+        installed, and otherwise just use numpy's fftpack wrappers.
+        """
+        
+        if FORCE_NO_FFTW:
+            logger.warning('FORCE_NO_FFTW is set to TRUE, not using FFTW')
+        
+        if PYFFTW_INSTALLED and (not FORCE_NO_FFTW):
+            logger.debug('Using pyfftw/FFTW backend for FFTs')
+            
+            finp = pyfftw.n_byte_align_empty((self._batch_size, self.num_phi), 8, 'float64')
+            fout = pyfftw.n_byte_align_empty((self._batch_size, self.num_phi/2 + 1), 16, 'complex128')
+            fft_fwd = pyfftw.FFTW(finp, fout, direction='FFTW_FORWARD', 
+                                  flags=('FFTW_MEASURE',), 
+                                  threads=self.num_procs)
+                                  
+            bout = pyfftw.n_byte_align_empty((self._batch_size, self.num_phi), 8, 'float64')
+            binp = pyfftw.n_byte_align_empty((self._batch_size, self.num_phi/2 + 1), 16, 'complex128')
+            fft_bck = pyfftw.FFTW(binp, bout, direction='FFTW_BACKWARD', 
+                                  flags=('FFTW_MEASURE',),
+                                  threads=self.num_procs)
+                                  
+            def fxn(a, b):
+                
+                if not a.dtype == np.float64:
+                    a = a.astype(np.float64)
+                if not b.dtype == np.float64:
+                    b = b.astype(np.float64)
+
+                if not a.shape == b.shape:
+                    raise ValueError('`a` and `b` arrays must have same shape'
+                                     '! Passed: a=%s/b=%s' % (str(a.shape), str(b.shape)))
+
+                if (a.shape[0] > self._batch_size) or (b.shape[0] > self._batch_size):
+                    raise RuntimeError('Array `a` or `b` too large in dim 0 for'
+                                       ' allocated FFT arrays. Increase '
+                                       'Rings._batch_size and re-run '
+                                       'Rings._initialize_fft_correlate() to '
+                                       'increase the size of the memory allocation.')
+                
+                # we have to allocate a static memory size above for max
+                # efficiency. just use zero padding and crop it out if our
+                # input array is too small. the cost will be negligable
+                pad = np.zeros((self._batch_size - a.shape[0], a.shape[1]))
+                logger.debug('Pad size: %d, shape: %s' % (self._batch_size - a.shape[0], str(pad.shape)))
+                #assert np.vstack((a, pad)).shape == (self._batch_size, self.num_phi)
+                                   
+                # transform & conj first array
+                finp[:] = np.vstack((a, pad))
+                fft_fwd(finp, fout)
+                binp = fout.copy()
+                binp = np.conjugate(binp)
+                
+                # transform second array
+                finp[:] = np.vstack((b, pad))
+                fft_fwd(finp, fout)
+                
+                # convolve
+                binp *= fout
+                
+                # inv FT
+                fft_bck(binp, bout)
+                
+                corr = bout.copy()[:a.shape[0],:]
+                return corr
+                
+            
+        else: # not PYFFTW_INSTALLED, use np ffts
+            
+            logger.debug('Using numpy/fftpack backend for FFTs')
+            
+            def fxn(a, b):
+                # n = how big the array is
+                ffx  = np.fft.rfft(a, n=a.shape[1], axis=1)
+                ffy  = np.fft.rfft(b, n=b.shape[1], axis=1)
+                return np.fft.irfft( ffx * np.conjugate(ffy), n=a.shape[1], axis=1)
+            
+        self._fft_correlate = fxn # inject the function
+        
+        return
+    
+        
+    def _fft_correlate(self, a, b):
+        """
+        Correlate two read arrays, `a` and `b`, using the fast Fourier transform.
+        These arrays should already be mean subtracted!
+
+        Parameters
+        ----------
+        a, b : np.ndarray, real
+            The two arrays to correlate. Correlation is performed along the last
+            axis *only*. Must be one or two dimensional.
+            
+        Returns
+        -------
+        correlation : np.ndarray
+            The correlation function, Corr(a,b). Unnormalized.
+        """
+        
+        # this is just a placeholder -- the actual function gets monkey patched
+        # by Rings._initialize_fft_correlate() -- the below should never run
+        
+        raise RuntimeError('Class initialization failed -- '
+                           'Rings._initialize_fft_correlate() never ran.')
+                                    
         return
     
         
@@ -2110,7 +2278,7 @@ class Rings(object):
         else:
             raise RuntimeError('incorrect type in self._intensities')
         return type_str
-
+    
 
     @property
     def polar_intensities(self):
@@ -2138,7 +2306,41 @@ class Rings(object):
         # yield the filtered result
         for x in pi_iter:
             yield self._filter_intensities(x)
+    
             
+    @property
+    def _polar_intensities_batch_iter(self):
+        """
+        Yields blocks of shots, with `batch_size` shots in each block. 
+        
+        Useful if batch processing of shot data can yield a speedup, as in e.g.
+        the correlate_intra/inter functions. Note this always yeilds a block of
+        the expected size, even when that block is bigger than the number of
+        shots.
+        
+        Parameters
+        ----------
+        batch_size : int
+            The number of shots to include in each batch.
+            
+        Yields
+        -------
+        shot_data : ndarray, float
+            A shape (`batch_size` x `phi_values`) array of polar intensities.
+        """
+        
+        num_batches = (self.num_shots / self._batch_size) + 1
+        shot_data = np.zeros((self._batch_size, self.num_q, self.num_phi))
+        
+        for i in range(num_batches):
+            start = i * self._batch_size
+            stop  = min(self.num_shots, (i+1) * self._batch_size)
+            if self._polar_intensities_type == 'array':
+                shot_data[:stop-start] = self._polar_intensities[start:stop]
+            elif self._polar_intensities_type == 'tables':
+                shot_data[:stop-start] = self._polar_intensities.read(start, stop)
+            yield shot_data
+    
             
     def _filter_intensities(self, intensities):
         """
@@ -2159,7 +2361,7 @@ class Rings(object):
             for flt in self._intensity_filters:
                 intensities = flt(intensities)
         return intensities
-
+    
 
     def _add_intensity_filter(self, flt):
         """
@@ -2175,27 +2377,27 @@ class Rings(object):
     @property
     def num_shots(self):
         return self._polar_intensities.shape[0]
-
+    
 
     @property
     def phi_values(self):
         return np.arange(0, 2.0*np.pi, 2.0*np.pi/float(self.num_phi))
-
+    
 
     @property
     def q_values(self):
         return self._q_values
-
+    
 
     @property
     def num_phi(self):
         return self._polar_intensities.shape[2]
-
+    
 
     @property
     def num_q(self):
         return len(self._q_values)
-
+    
 
     @property
     def num_datapoints(self):
@@ -2259,15 +2461,15 @@ class Rings(object):
         return int(q_ind)
 
 
-    def depolarize(self, xaxis_polarization):
+    def correct_polarization(self, yaxis_polarization):
         """
         Applies a polarization correction to the rings.
         
         Parameters
         ----------
-        xaxis_polarization : float
-            The fraction of the beam polarization in the horizontal/x plane.
-            For synchrotron sources, this is the ''in-plane'' polarization.
+        yaxis_polarization : float
+            The fraction of the beam polarization in the vertical/y plane.
+            For synchrotron sources, this is the ''out-of-plane'' polarization.
             
         Citations
         ---------
@@ -2275,23 +2477,23 @@ class Rings(object):
         ..[2] Jackson. Classical Electrostatics.
         """
         
-        logger.info('Applying polarization correction w/P_x=%.3f' % xaxis_polarization)
-        if (xaxis_polarization > 1.0) or (xaxis_polarization < 0.0):
+        logger.info('Applying polarization correction w/P_y=%.3f' % yaxis_polarization)
+        if (yaxis_polarization > 1.0) or (yaxis_polarization < 0.0):
             raise ValueError('Polarization cannot be greater than 100%! Got '
-                             '`xaxis_polarization` value of %.3f' % xaxis_polarization)
+                             '`yaxis_polarization` value of %.3f' % yaxis_polarization)
 
         correctn = np.zeros((self.num_q, self.num_phi))
 
         for i,q in enumerate(self.q_values):
             theta     = np.arcsin( q / (2.0 * self.k) )
             sin_theta = np.sin(2.0 * theta)
-            correctn[i,:]  = (1.-xaxis_polarization) * \
+            correctn[i,:]  = (1.-yaxis_polarization) * \
                              ( 1. - np.square(sin_theta * np.cos(self.phi_values)) ) + \
-                             xaxis_polarization  * \
+                             yaxis_polarization  * \
                              ( 1. - np.square(sin_theta * np.sin(self.phi_values)) )
             
         for pi in self.polar_intensities_iter:
-            pi[:,:] *= correctn[:,:]
+            pi[:,:] /= correctn[:,:]
 
         return
     
@@ -2321,7 +2523,8 @@ class Rings(object):
         return intensity_profile
 
 
-    def correlate_intra(self, q1, q2, num_shots=0, normed=False, mean_only=True):
+    def correlate_intra(self, q1, q2, num_shots=0, normed=False, mean_only=True,
+                        use_fft=True):
         """
         Does intRA-shot correlations for many shots.
 
@@ -2340,6 +2543,10 @@ class Rings(object):
             return the (std-)normalized correlation or un-normalized correlation
         mean_only : bool
             whether or not to return every correlation, or the average
+        use_fft : bool
+            Whether or not to use a dFFT + convolution theorem to compute the
+            correlator (order: N log N). If False, use a brute force
+            implemenation that is slower but more robust to noise.
 
         Returns
         -------
@@ -2355,13 +2562,13 @@ class Rings(object):
         if num_shots == 0: # then do correlation for all shots
             num_shots = self.num_shots
             
-        # generate an output space
+        # allocate an output space
         if mean_only:
             intra = np.zeros(self.num_phi)
         else:
             intra = np.zeros((num_shots, self.num_phi))
 
-        # Check if mask exists
+        # check if mask exists
         if self.polar_mask != None:
             mask1 = self.polar_mask[q_ind1,:]
             mask2 = self.polar_mask[q_ind2,:]
@@ -2374,23 +2581,44 @@ class Rings(object):
             var1 = 0.0
             var2 = 0.0
         
-        for i,pi in enumerate(self.polar_intensities_iter):
-
-            logger.info('Correlating shot %d/%d' % (i+1, num_shots))
+        logger.info('Correlating shots...')
+        for i,pi in enumerate(self._polar_intensities_batch_iter):
             
-            rings1 = pi[q_ind1,:]
-            rings2 = pi[q_ind2,:]
+            # compute which shots we're processing
+            start_i = i * self._batch_size
+            stop_i  = (i+1) * self._batch_size
+            
+            logger.debug('Batch start/stop: %d/%d' % (start_i, stop_i))
+            
+            # stop if we have a batch > num_shots (also avoid including zero pads)
+            if stop_i > num_shots:
+                trunc = num_shots - start_i
+                logger.debug('Truncating batch to %d rows\n' % trunc)
+                assert trunc > 0
+            else:
+                trunc = self._batch_size
+
+            # perform the correlation calculation
+            logger.info(utils.logger_return + 'Correlating shot %d/'
+                        '%d' % (i * self._batch_size + 1, num_shots))
+            
+            rings1 = pi[:,q_ind1,:]
+            rings2 = pi[:,q_ind2,:]
             
             if mean_only:
-                intra += self._correlate_rows(rings1, rings2, mask1, mask2)
+                intra += self._correlate_rows(rings1, rings2, mask1, mask2,
+                                              use_fft=use_fft)[:trunc,:].mean(axis=0)
             else:
-                intra[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2)
+                intra[start_i:stop_i,:] = self._correlate_rows(rings1, rings2, 
+                                                               mask1, mask2,
+                                                               use_fft=use_fft)[:trunc,:]
             
             if normed:
-                var1 += np.var( rings1[mask1] )
-                var2 += np.var( rings2[mask2] )
+                # note: if no mask, indexing with [None] should not affect below
+                var1 += np.var( rings1[:trunc,mask1] )
+                var2 += np.var( rings2[:trunc,mask2] )
                 
-            if i == num_shots - 1:
+            if i >= num_shots - 1:
                 break
                 
         if mean_only:
@@ -2400,11 +2628,14 @@ class Rings(object):
             intra /= np.sqrt( var1 * var2 / np.square(float(num_shots)) )
             #assert intra.max() <=  1.1
             #assert intra.min() >= -1.1
+            
+        logger.info('... complete')
         
         return intra
     
 
-    def correlate_inter(self, q1, q2, num_pairs=0, normed=False, mean_only=True):
+    def correlate_inter(self, q1, q2, num_pairs=0, normed=False, mean_only=True,
+                        use_fft=True):
         """
         Does intER-shot correlations for many shots.
 
@@ -2423,6 +2654,10 @@ class Rings(object):
             return the (std-)normalized correlation or un-normalized correlation
         mean_only : bool
             whether or not to return every correlation, or the average
+        use_fft : bool
+            Whether or not to use a dFFT + convolution theorem to compute the
+            correlator (order: N log N). If False, use a brute force
+            implemenation that is slower but more robust to noise.
 
         Returns
         -------
@@ -2437,18 +2672,6 @@ class Rings(object):
 
         max_pairs = self.num_shots * (self.num_shots - 1) / 2
         
-        if (num_pairs == 0) or (num_pairs > max_pairs):
-            inter_pairs = utils.all_pairs(self.num_shots)
-            num_pairs = max_pairs
-        else:
-            inter_pairs = utils.random_pairs(self.num_shots, num_pairs)
-            
-        # generate an output space
-        if mean_only:
-            inter = np.zeros(self.num_phi)
-        else:
-            inter = np.zeros((num_pairs, self.num_phi))
-
         # Check if mask exists
         if self.polar_mask != None:
             mask1 = self.polar_mask[q_ind1,:]
@@ -2461,47 +2684,147 @@ class Rings(object):
         if normed:
             var1 = 0.0
             var2 = 0.0
+            
+        # to compute inter correlators, we can either pull random pairs and 
+        # correlate (order: N^2, N=#shots), or we can correlate each shot against 
+        # the average of all the other shots to quickly get the mean inter
+        # correlator (order N)
         
-        for k,(i,j) in enumerate(inter_pairs):
+        # use order N method: correlate vs. mean
+        logger.info('Correlating inter...')
+        if mean_only:
+            logger.debug('mean only')
             
-            logger.info('Correlating intra %d/%d' % (i+1, num_pairs))
+            inter = np.zeros(self.num_phi)
+            total = np.zeros(self.num_phi)
             
-            if self._polar_intensities_type == 'array':
-                rings1 = self._polar_intensities[i,q_ind1,:]
-                rings2 = self._polar_intensities[j,q_ind2,:]
-                
-            # todo : this could be very slow if we have to skip all over the
-            #        place on disk -- do some tests, see if it's a problem,
-            #        act accordingly
-            elif self._polar_intensities_type == 'tables':
-                rings1 = self._polar_intensities.read(i)
-                rings2 = self._polar_intensities.read(j)
-                rings1 = rings1[0,q_ind1,:]
-                rings2 = rings2[0,q_ind2,:]
-            
-            if mean_only:
-                inter += self._correlate_rows(rings1, rings2, mask1, mask2)
+            # decide how many shots to use
+            if (num_pairs == 0) or (num_pairs >= max_pairs):
+                num_pairs = max_pairs
+                actual_pairs = max_pairs
+                break_n = self.num_shots
             else:
-                inter[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2)
+                # this is a crude but ez approx to the number requested...
+                # it will always compute more correlators than asked for
+                break_n = (self.num_shots - 1) / num_pairs
+                actual_pairs = np.sum([(self.num_shots-k) for k in range(break_n)])
+                logger.info('Rounding up number of computed inter correlation'
+                            ' pairs for optimal efficiency: %d paris.' % actual_pairs)
             
             if normed:
-                var1 += np.var( rings1[mask1] )
-                var2 += np.var( rings2[mask2] )
+                ring1_var = np.zeros(self.num_shots)
             
+            # first loop -- compute mean
+            for n,itx in enumerate(self.polar_intensities_iter):
+                logger.info(utils.logger_return + 'Averaging shot %d/%d' % (n+1, break_n))
+                if n == break_n:
+                    logger.info('%d shots reached, breaking first loop' % n)
+                    break
+                #if normed: ring1_var[n] = np.var(itx[q_ind1,:])
+                total += itx[q_ind1,:]
+            
+            # second loop -- compute inter correlators
+            total = total[None,:] # expand to 2d (initalization for below)
+            for n,itx in enumerate(self._polar_intensities_batch_iter):
+
+                # compute which shots we're processing
+                start_i = n * self._batch_size
+                stop_i  = (n+1) * self._batch_size
+
+                logger.debug('Batch start/stop: %d/%d' % (start_i, stop_i))
+
+                # stop if we have a batch > num_shots (also avoid including zero pads)
+                if stop_i > break_n:
+                    trunc = break_n - start_i
+                    logger.debug('Truncating batch to %d rows\n' % trunc)
+                    assert trunc > 0
+                else:
+                    trunc = self._batch_size
+            
+                logger.info(utils.logger_return + 'Correlating shot %d/%d w/all others' % (n+1, break_n))
+
+                # rip out the relevant rings
+                rings1 = itx[:trunc,q_ind1,:]
+                rings2 = itx[:trunc,q_ind2,:]
                 
-        if mean_only:
-            inter /= float(num_pairs)
+                # subtract the relevant rings
+                total  = total[-1,:][None,:] * np.ones((trunc, self.num_phi))
+                total -= np.cumsum(rings1, axis=0)
+                
+                # actually do the correlations
+                inter += self._correlate_rows(total, rings2, mask1, mask2,
+                                              use_fft=use_fft)[:trunc,:].mean(axis=0)
+                
+                if normed:
+                    #var1 += np.sum( ring1_var[start_i+1:stop_i+1] )
+                    var1 += np.var( rings1[:,mask1] )
+                    var2 += np.var( rings2[:,mask2] )
+
+                # decide when to end
+                if stop_i >= break_n:
+                    logger.info('%d shots reached, breaking second loop' % n)
+                    break
+                    
+            # normalize -- dont touch this! -- TJL -----------------------------
+            inter /= float(np.sum([(self.num_shots-k) for k in range(1,break_n+1)])) 
+            inter /= float(self.num_shots) / 4.0
             
-        if normed:
-            inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
-            #assert inter.max() <=  1.0
-            #assert inter.min() >= -1.0
+            
+            if normed:
+                inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
+                inter /= np.sqrt( (self.num_shots - 1.0) )
+                
+                # n_pairs = factorial(self.num_shots - 1) / factorial(self.num_shots - break_n - 2)
+                # inter /= (n_pairs - 1) * np.sqrt(var1 * var2)
+            # ------------------------------------------------------------------
+
+            
+        # draw random pairs
+        else:
+            logger.debug('\nmean only')
+            
+            if (num_pairs == 0) or (num_pairs >= max_pairs):
+                inter_pairs = utils.all_pairs(self.num_shots)
+                num_pairs = max_pairs
+                inter = np.zeros((num_pairs, self.num_phi)) # output space
+            else:
+                inter_pairs = utils.random_pairs(self.num_shots, num_pairs)
+            
+            inter = np.zeros((num_pairs, self.num_phi))
+
+            for k,(i,j) in enumerate(inter_pairs):
+            
+                logger.info(utils.logger_return + 'Correlating inter pair %d/%d' % (k+1, num_pairs))
+            
+                if self._polar_intensities_type == 'array':
+                    rings1 = self._polar_intensities[i,q_ind1,:]
+                    rings2 = self._polar_intensities[j,q_ind2,:]
+                
+                elif self._polar_intensities_type == 'tables':
+                    rings1 = self._polar_intensities.read(i)
+                    rings2 = self._polar_intensities.read(j)
+                    rings1 = rings1[0,q_ind1,:]
+                    rings2 = rings2[0,q_ind2,:]
+                    
+                inter[i,:] = self._correlate_rows(rings1, rings2, mask1, mask2,
+                                                  use_fft=use_fft)
+            
+                if normed:
+                    var1 += np.var( rings1[mask1] )
+                    var2 += np.var( rings2[mask2] )
+                    
+            if normed:
+                inter /= np.sqrt( var1 * var2 / np.square(float(num_pairs)) )
+                    
+        logger.info('... complete')
+        
+        #assert inter.max() <=  1.0
+        #assert inter.min() >= -1.0
 
         return inter
         
         
-    @staticmethod
-    def _correlate_rows(x, y, x_mask=None, y_mask=None):
+    def _correlate_rows(self, x, y, x_mask=None, y_mask=None, use_fft=True):
         """
         Compute the (unnormalized) circular correlation function across the rows
         of x,y. The correlation functions are computed using the fluctuations
@@ -2518,6 +2841,11 @@ class Rings(object):
         x_mask,y_mask : np.ndarray, bool
             Arrays describing masks over the data. These are 1D arrays of size
             M, with a single value for each data point.
+            
+        use_fft : bool
+            Whether or not to use a dFFT + convolution theorem to compute the
+            correlator (order: N log N). If False, use a brute force
+            implemenation that is slower but more robust to noise.
         
         Returns
         -------
@@ -2582,10 +2910,14 @@ class Rings(object):
         x_bar = x.mean(axis=1)[:,None]
         y_bar = y.mean(axis=1)[:,None]
         
-        # use d-FFT + convolution thm
-        ffx  = np.fft.rfft((x - x_bar) * xm, n=n_col, axis=1)
-        ffy  = np.fft.rfft((y - y_bar) * ym, n=n_col, axis=1)
-        corr = np.fft.irfft( ffx * np.conjugate(ffy), n=n_col, axis=1)
+        if use_fft: # use d-FFT + convolution thm
+            corr = self._fft_correlate((x - x_bar) * xm, (y - y_bar) * ym)
+            
+        else:       # use C++ brute force implementation
+            corr = np.zeros((n_row, n_col))
+            for i in range(n_row):
+                corr[i,:] = brute_correlate(x[i,:] * xm, y[i,:] * ym, 2)
+            
         assert corr.shape == (n_row, n_col)
                     
         # normalize by the number of pairs
@@ -2683,6 +3015,107 @@ class Rings(object):
                 Cl[:,j,i] = c  # copy it to the lower triangle too
 
         return Cl
+        
+        
+    def correlation_significance(self, q1, q2, max_samples=None, 
+                                 intra=None, inter=None):
+        """
+        Perform a two-way Hotelling T^2 test (multivariate Student's t-test)
+        to assess if the means of intra/inter correlators between two q-values
+        are significantly different.
+        
+        This function computes intra- and inter-correlators between two rings
+        and then performs a multivariate two-way T^2 test for significant 
+        difference between the means of those two samples. Returned is a two-
+        tailed p-value for significance.
+        
+        Parameters
+        ----------
+        q1 / q2 : float
+            The q-values of the first and second ring to correlate.
+            
+        max_samples : int
+            The maximium number of samples to compute. If `None`, will compute
+            all intra correlators and an equal number of inter correlators.
+        
+        Optional Parameters
+        -------------------
+        intra/inter : ndarray, float
+            Pre-computed intra or inter samples between q1 and q2. Simply to
+            save time if you have these values already on hand.
+            
+        Returns
+        -------
+        p_value : float
+            The two-tailed p-value. Less than 0.05 usually is taken to indicate
+            significant deviation between the means.
+        
+        References
+        ----------
+        ..[1] https://en.wikipedia.org/wiki/Hotelling%27s_T-squared_distribution
+        ..[2] https://en.wikipedia.org/wiki/Student's_t-test
+        """
+        
+        if max_samples == None:
+            max_samples = self.num_shots
+
+        # if not already computed, get the correlators
+        if intra == None:
+            intra = self.correlate_intra(q1, q2, mean_only=False, num_shots=max_samples)
+        if inter == None:
+            inter = self.correlate_inter(q1, q2, mean_only=False, num_pairs=max_samples)
+        
+        assert intra.shape[1] == inter.shape[1]
+        
+        # center the data
+        #intra -= intra.mean(axis=1)[:,None]
+        #inter -= inter.mean(axis=1)[:,None]
+
+        # perform the test
+        n_x = float(intra.shape[0])
+        n_y = float(inter.shape[0])
+        
+        p = float(intra.shape[1]) # dim of the data
+        
+        mu_x = intra.mean(axis=0)
+        mu_y = inter.mean(axis=0)
+        mu_d = mu_x - mu_y
+        
+        if intra.shape[1] > 1:
+            # next line: correct from np normalization
+            W = (np.cov( intra.T ) * n_x + np.cov( inter.T ) * n_y) / (n_x + n_y - 2)
+            try:
+                Winv = np.linalg.inv(W)
+            except Exception as e:
+                logger.warning(e)
+                raise RuntimeError('Could not invert covariance matrix for T^2'
+                                   ' test. Try increasing the number of samples'
+                                   ' (shots) and/or decreasing the data '
+                                   'dimensionality (num_phi), which should '
+                                   'increase the estimator stability, and try'
+                                   ' again.')
+        elif intra.shape[1] == 1:
+            print "here"
+            W = ( np.var(intra) * n_x + np.var(inter) * n_y ) / (n_x + n_y - 2)
+            Winv = 1.0 / W
+            logger.info('%f %f', mu_d, Winv)
+        else:
+            raise ValueError('intra/inter arrays must be 2d')
+        
+        t_sqd = ((n_x * n_y) / (n_x + n_y)) * np.dot(mu_d.T, np.dot(Winv, mu_d))
+        f = (n_x + n_y - p - 1) / ((n_x + n_y - 2)*p) * t_sqd
+        
+        rv = stats.f(p, n_x + n_y - 1 - p)
+        
+        # I have the sf (1-CDF) on the next line -- appears to work, but orig
+        # I thought this should have been just the CDF. Shrug. --TJL
+        p_value = float(rv.sf(f)) # two-tailed by checking against scipy (shrug #2)
+
+        if (p_value > 2.0) or (p_value < 0.0):
+            raise RuntimeError('Invalid p_value determined (%f): out of bounds.'
+                               ' Check input.' % p_value)
+
+        return p_value
 
 
     @classmethod
@@ -2772,7 +3205,7 @@ class Rings(object):
         return cls(q_values, polar_intensities, k, polar_mask=None)
 
 
-    def save(self, filename):
+    def save(self, filename, overwrite=False):
         """
         Saves the Rings object to disk.
 
@@ -2781,12 +3214,15 @@ class Rings(object):
         filename : str
             The name of the file to write to disk. Must end in '.ring' -- if you
             don't put this, it will be automatically added.
+            
+        overwrite : bool
+            If False, cannot overwrite a file already on disk.
         """
 
         if not filename.endswith('.ring'):
             filename += '.ring'
             
-        if os.path.exists(filename):
+        if os.path.exists(filename) and (not overwrite):
             raise IOError('File: %s already exists! Aborting...' % filename)
 
         # if self.polar_mask == None, then save a single 0
