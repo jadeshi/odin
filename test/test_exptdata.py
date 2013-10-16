@@ -28,7 +28,6 @@ class TestDistanceRestraint(object):
         
         self.dr = exptdata.DistanceRestraint(self.restraint_array)
         
-        
     def test_n_data(self):
         assert self.dr.n_data == 2
     
@@ -39,6 +38,16 @@ class TestDistanceRestraint(object):
     def test_prediction(self):
         # these values were checked out by TJL and deemed sane
         assert_array_equal( np.array([[ 0., 1.]]), self.dr.predict(self.t) )
+        
+    def test_log_likelihood(self):
+        # only smoke right now
+        print self.dr.log_likelihood(self.t)
+        
+    def test_prediction_log_likelihood(self):
+        prediction = self.dr.predict(self.t)
+        pll = self.dr.prediction_log_likelihood(prediction)
+        ll  = self.dr.log_likelihood(self.t)
+        assert_array_almost_equal(pll, ll)
     
     def test_errors(self):
         # smoke test only right now
@@ -48,7 +57,7 @@ class TestDistanceRestraint(object):
     def test_default_error(self):
         assert_array_almost_equal( self.dr.errors, self.dr._default_error() )
     
-    def test_from_file(self):
-        dr2 = exptdata.DistanceRestraint.from_file( ref_file('exptdata_ref.dat') )
+    def test_load(self):
+        dr2 = exptdata.DistanceRestraint.load( ref_file('exptdata_ref.dat') )
         assert_array_equal(dr2.values, self.dr.values)
         

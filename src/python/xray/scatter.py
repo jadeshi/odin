@@ -15,7 +15,7 @@ from threading import Thread
 
 from odin import _cpuscatter
 from odin.math2 import arctan3
-from odin.exptdata import ExptData
+from odin.exptdata import EnsembleExpt
 from odin.refdata import cromer_mann_params
 
 try:
@@ -319,16 +319,15 @@ def sph_hrm_coefficients(trajectory, weights=None, q_magnitudes=None,
                                                       np.conjugate(Slm[il,:,iq2]) ) )
     
     return sph_coefficients
-    
-    
-    
-class IntensityProfileData(ExptData):
+
+
+class IntensityProfileData(EnsembleExpt):
     """
     A class supporting one-dimensional x-ray scattering data:
     
     The observed x-ray scattering averaged over the azimuthal (radial)
     angle on the detector. Also known as SAXS/WAXS data.
-
+    
     The intensity profile is stored in self._intensity profile. This is the
     average profile over all data files that get loaded. self._intensity is
     a N x 2 array, the first column is the list of q-values at which the
@@ -437,7 +436,7 @@ class IntensityProfileData(ExptData):
 
         
         
-def CorrelationData(ExptData):
+def CorrelationData(EnsembleExpt):
     """
     This is the correlation function of an intensity 'ring' on the detector.
     These correlations promise to hold more structural information than

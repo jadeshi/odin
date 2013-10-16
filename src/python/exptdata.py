@@ -10,119 +10,14 @@ import abc
 from glob import glob
 
 import numpy as np
-
 from mdtraj import io
 
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
+ 
 
-
-class ExptDataCollection(object):
-    """
-    A collection of ExptData classes, of various types. This class provides an
-    aggregated interface to all those data.
-    """
-    
-    def __init__(self, expt_data_list):
-        """
-        Generate an instance of the class.
-        
-        Parameters
-        ----------
-        expt_data_list : list
-            A list of various ExptData instances, mapping to all the data to
-            include in this structure prediction round.
-        """
-        
-        self.expt_data_list = expt_data_list
-        self._n_data = np.sum([ d._n_data for d in expt_data_list ])
-        
-        # determine the different kinds of experiments
-        self._expttype = []        
-        for d in expt_data_list:
-            self._expttype.append( type(d).split('.')[-1] ) # dbl chk
-        
-        return
-    
-        
-    @property
-    def n_data(self):
-        return self._n_data
-    
-        
-    @property
-    def exptmeta(self):
-        """
-        Metadata necessary for identifying what an experimental value is. Should
-        include all information necessary to provide a prediction of that
-        experiment, when the x,y,z coordinates of the system are also provided.
-        
-        E.g., for chemical shifts this would be the atom (index, element type),
-        for scattering it would be the detector pixel location (q-vector), etc.
-        """
-        return self._exptmeta
-    
-        
-    @property
-    def expttype(self):
-        """
-        For each data point, the kind of experiment that generated that data
-        """
-        assert len(self._expttype) == self._n_data
-        return self._expttype
-    
-        
-    @property
-    def values(self):
-        """
-        The measured values of each data point
-        """
-        
-        values = np.zeros(self._n_data)
-        
-        
-        assert values.shape[0] == self._n_data
-        return
-    
-        
-    @property
-    def errors(self):
-        """
-        The errors associated with each experiment.
-        """
-        assert len(self._errors) == self._n_data
-        return 
-    
-        
-    def save(self, target):
-        """
-        Save all experimental data to disk, in one file.
-        
-        This file needs to contain:
-        
-        MeasurementID | ExptType | Metadata | Value | Error
-        
-        """
-        
-        if os.path.exists(target):
-            raise ValueError('File exists! %s' % target)
-        
-        if target.endswith('.db'):
-            logger.info('Writing expt. data to database: %s' % target)
-            self._to_sqlite(target)
-        elif target.endswith('.hdf'):
-            logger.info('Writing expt. data to HDF5: %s' % target)
-            self._to_file(target)
-        else:
-            raise ValueError('Cannot understand what format to write %s to. Options: .hdf, .db.' % target)
-
-    @classmethod
-    def load(self, target):
-        pass
-    
-
-class ExptData(object):
+class ExptDataBase(object):
     """
     Abstract base class for experimental data classes.
         
@@ -138,31 +33,10 @@ class ExptData(object):
     __metaclass__ = abc.ABCMeta
         
     # the following methods will be automatically inhereted, but are mutable
-    # by children if need be    
-            
-    @property
-    def n_data(self):
-        return self._n_data
-        
-    @property
-    def values(self):
-        """
-        The measured values of each data point
-        """
-        return self._get_values()
-        
-    @property
-    def errors(self):
-        """
-        The errors associated with each experiment.
-        """
-        return self._get_errors()
-
-    # Classes that inherent from ExptData must implement all the methods below 
-    # this is enforced by the abstract class module
+    # by children if need be
     
     @abc.abstractmethod
-    def from_file(self, filename):
+    def load(self, filename):
         """
         Load a file containing experimental data, and dump the relevant data,
         errors, and metadata into the object in a smart/comprehendable manner.
@@ -186,6 +60,98 @@ class ExptData(object):
            len(trajectory) X len(values).
         """
         return prediction
+    
+        
+    @abc.abstractmethod
+    def log_likelihood(self, trajectory):
+        """
+        Compute the log_likelihood of each snapshot in `trajectory` given the
+        specific model in question.
+        
+        Parameters
+        ----------
+        trajectory : mdtraj.Trajectory
+            A trajectory of conformations to compute the log-likelihood of
+            
+        Returns
+        -------
+        log_likelihood : np.ndarray
+            The log-likehood of each trajectory given the model & data
+        """
+        # NOTE: the implementation of this method will depend heavily on
+        #       kind of experimental data used -- implementation will be in
+        #       the next level of the class dependency tree
+        return log_likelihood
+    
+        
+    @abc.abstractmethod
+    def prediction_log_likelihood(self, predictions):
+        """
+        Compute the log_likelihood of each snapshot in `trajectory` given the
+        specific model in question.
+        
+        Parameters
+        ----------
+        predictions : np.ndarray
+            The experimental predictions for each trajectory
+            
+        Returns
+        -------
+        log_likelihood : np.ndarray
+            The log-likehood of each trajectory given the model & data
+        """
+        # NOTE: the implementation of this method will depend heavily on
+        #       kind of experimental data used -- implementation will be in
+        #       the next level of the class dependency tree
+        return log_likelihood
+        
+    
+class EnsembleExpt(ExptDataBase):
+    """
+    A container object for a set of experimental data performed on an ensemble
+    of structures.
+    """
+        
+    __metaclass__ = abc.ABCMeta
+            
+    @property
+    def n_data(self):
+        return self._n_data
+        
+    @property
+    def values(self):
+        """
+        The measured values of each data point
+        """
+        return self._get_values()
+        
+    @property
+    def errors(self):
+        """
+        The errors associated with each experiment.
+        """
+        return self._get_errors()
+        
+    def log_likelihood(self, trajectory):
+        """
+        Compute the log_likelihood of each snapshot in `trajectory` given the
+        specific model in question.
+        
+        Parameters
+        ----------
+        trajectory : mdtraj.Trajectory
+            A trajectory of conformations to compute the log-likelihood of
+            
+        Returns
+        -------
+        log_likelihood : np.ndarray
+            The log-likehood of each trajectory given the model & data
+        """
+        predictions = self.predict(trajectory)
+        return self.prediction_log_likelihood(predictions)
+
+    # Classes that inherent from ExptData must implement all the methods below 
+    # this is enforced by the abstract class module
         
     @abc.abstractmethod
     def _default_error(self):
@@ -210,12 +176,25 @@ class ExptData(object):
         with the method self.predict()
         """
         return errors
+        
+        
+class SingleMolecExperiment(ExptDataBase):
+    """
+    A container object for a set of experimental data performed on a single
+    molecule
+    """
+    
+    __metaclass__ = abc.ABCMeta
+    
+    # work in progress
     
 
-class DistanceRestraint(ExptData):
+class DistanceRestraint(EnsembleExpt):
     """
     An experimental data class that can be used for NOEs, chemical x-linking,
     etc. Anything that relies on a distance restraint.
+    
+    This class also serves as a basic test of its parent classes.
     
     The input here is an N x 4 array, with each row specifying
     
@@ -287,7 +266,7 @@ class DistanceRestraint(ExptData):
     
         
     @classmethod
-    def from_file(cls, filename):
+    def load(cls, filename):
         """
         Load a file containing experimental data, and dump the relevant data,
         errors, and metadata into the object in a smart/comprehendable manner.
@@ -341,6 +320,29 @@ class DistanceRestraint(ExptData):
                     prediction[i,j] = 1.0
         
         return prediction
+        
+        
+    def prediction_log_likelihood(self, predictions):
+        """
+        Compute the log_likelihood of each snapshot in `trajectory` given the
+        specific model in question.
+        
+        Parameters
+        ----------
+        predictions : np.ndarray
+            The experimental predictions for each trajectory
+            
+        Returns
+        -------
+        log_likelihood : np.ndarray
+            The log-likehood of each trajectory given the model & data
+        """
+        
+        # normal errors w/o correlation
+        log_likelihood = np.log( 1.0 / (self.errors * np.sqrt(2.0 * np.pi)) ) -\
+                         np.power(predictions - self.values, 2) / (2.0 * self.errors)
+        
+        return log_likelihood
     
         
     def _default_error(self):
