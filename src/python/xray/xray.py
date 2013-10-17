@@ -2329,7 +2329,10 @@ class Rings(object):
             A shape (`batch_size` x `phi_values`) array of polar intensities.
         """
         
-        num_batches = (self.num_shots / self._batch_size) + 1
+        num_batches = (self.num_shots / self._batch_size)
+        if (self.num_shots % self._batch_size) > 0: # catch remaining shots
+            num_batches += 1
+
         shot_data = np.zeros((self._batch_size, self.num_q, self.num_phi))
         
         for i in range(num_batches):
@@ -2588,7 +2591,7 @@ class Rings(object):
             start_i = i * self._batch_size
             stop_i  = (i+1) * self._batch_size
             
-            logger.debug('Batch start/stop: %d/%d' % (start_i, stop_i))
+            logger.debug('Batch start/stop: %d/%d\n' % (start_i, stop_i))
             
             # stop if we have a batch > num_shots (also avoid including zero pads)
             if stop_i > num_shots:
