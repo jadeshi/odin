@@ -1,4 +1,11 @@
 
+To Do
+-----
+(1) Test OpenMM sampler / debug
+(2) Check out ipython for sampling
+(3) Finish implementation of models.py
+
+
 
 ODIN game plan
 --------------

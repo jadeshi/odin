@@ -1,0 +1,35 @@
+
+All the odin results/processing will be contained in an
+HDF5 file. This file will contain the entirety of an
+ODIN run.
+
+/root
+
+-- runparams
+   -- 
+   -- info for connecting to remotes
+   
+
+-- exptdata
+   -- experiment1
+   -- experiment2
+   -- ...
+
+-- trajectories
+   -- traj1 (either traj object or str pointing to file on disk)
+   -- traj2
+   -- ...
+
+-- clustering
+   -- gen1
+      -- conformation
+      -- predictions
+      -- population
+   -- gen2
+   -- ...
+
+-- log
+>> text log of run
+
+
+
