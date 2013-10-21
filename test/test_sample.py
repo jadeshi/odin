@@ -23,8 +23,12 @@ try:
     HAVE_OPENMM = True
 except ImportError:
     HAVE_OPENMM = False
-        
-from odin import sample
+ 
+if HAVE_OPENMM:
+    from odin import sample
+else:
+    sample = None
+    
 from odin import potential
 from odin.testing import ref_file
 
@@ -102,6 +106,7 @@ def test_reporter():
 class TestMDMC(object):
     
     def setup(self):
+        if not HAVE_OPENMM: return
         self.potential = potential.Prior()
         self.prior = 'amber99sbildn.xml'
         self.pdb = mdtraj.load(ref_file('ala2.pdb'))

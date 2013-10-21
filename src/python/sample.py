@@ -10,6 +10,12 @@ import numpy as np
 
 from mdtraj import reporters
 
+from odin.potential import Potential
+
+import logging
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+
 try:
     from simtk.openmm import app
     import simtk.openmm as mm
@@ -18,13 +24,6 @@ except ImportError as e:
     logger.critical(e)
     raise ImportError('You must have OpenMM installed to employ the sampler '
                       '(https://simtk.org/home/openmm).')
-
-from odin.potential import Potential
-
-import logging
-logging.basicConfig()
-logger = logging.getLogger(__name__)
-
 
 class MCReporter(reporters.HDF5Reporter):
     """
