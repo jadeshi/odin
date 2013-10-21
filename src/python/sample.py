@@ -19,7 +19,7 @@ except ImportError as e:
     raise ImportError('You must have OpenMM installed to employ the sampler '
                       '(https://simtk.org/home/openmm).')
 
-from odin import potential
+from odin.potential import Potential
 
 import logging
 logging.basicConfig()
@@ -36,7 +36,7 @@ class MCReporter(reporters.HDF5Reporter):
     """
     
     # overwrite
-    def report(self, simulation, state, accept_move):
+    def report(self, simulation, state, accept_move=True):
         """
         Generate a report.
         
@@ -83,7 +83,7 @@ class MDMC(object):
     Performs hybrid MD/Monte-Carlo, where a short MD run is a moveset.
     """
 
-    def __init__(self, potential, prior, topology, starting_positions
+    def __init__(self, potential, prior, topology, starting_positions,
                  scaling_speed=1.1, target_accept_percent=0.75,
                  steps_per_iter=10000, temperature=300.0,
                  openmm_platform='CUDA', 
@@ -104,7 +104,7 @@ class MDMC(object):
         """
         
         # potential information
-        if not isinstance(potential, potential.Potential):
+        if not isinstance(potential, Potential):
             raise TypeError('Argument `potential` must be of type '
                             'odin.potential.Potential')
         self.potential = potential
@@ -170,16 +170,22 @@ class MDMC(object):
             OpenMM.
         """
         
-        self._prior_xml = xxx
-        
+        try:
+            self._prior_xml = prior
+            self.forcefield = app.ForceField(self._prior_xml)
+        except Exception as e:
+            logger.critical(e)
+            raise RuntimeError('Failed to initialized Forcefield. Most likely the'
+                               ' prior potential you requested, %s, does not exist'
+                               ' in the local OpenMM implementation.' % prior)
         return
         
         
     def _initialize_simulation(self):
-        
-        forcefield = app.ForceField(self._prior_xml)
+        """
+        """
 
-        self._system = forcefield.createSystem(self.topology, 
+        self._system = self.forcefield.createSystem(self.topology, 
                                                nonbondedMethod=app.PME, 
                                                nonbondedCutoff=1.0*unit.nanometers,
                                                constraints=app.HBonds,
@@ -201,7 +207,7 @@ class MDMC(object):
 
         self._simulation.minimizeEnergy()
         self._simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
-    
+        
         return
     
         
@@ -253,7 +259,7 @@ class MDMC(object):
             new_energy = self.potential(self._simulation.context.getState(getPositions=True).getPositions())
             
             # accept
-            if (new_energy < current_energy) or (np.random.rand() < np.exp((current_energy - new_energy) / self.temperature):
+            if (new_energy < current_energy) or (np.random.rand() < np.exp(current_energy - new_energy) / self.temperature):
                 
                 self.accepted += 1
                 self.moves_done += 1

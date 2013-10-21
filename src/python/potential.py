@@ -32,10 +32,27 @@ class Potential(object):
         """    
         return energy
     
+    
+class Prior(Potential):
+    """
+    This is a minimal implementation of a Potenial object, used mostly for testing.
+    It can also be used to integrate a model in a prior potential only, without
+    any experimental information.
+    """
+    
+    def __call__(self, xyz):
+           """
+           Takes a set of xyz coordinates and evaluates the potential on that
+           conformation.
+           """
+           if not len(xyz.shape) == 3:
+               raise TypeError('`xyz` must be a 3 dimensional array')
+           return np.ones(xyx.shape[0])
+    
         
 class SingleParticlePotential(Potential):
     
-    def __init__(self, expt_data, ):
+    def __init__(self, expt_data):
         
         
         return
@@ -58,14 +75,14 @@ class SingleParticlePotential(Potential):
         
         if isinstance(xyz, trajectory.Trajectory):
             coords = xyz.xyz
-        elif:
+        elif isinstance(xyz, np.ndarray):
             mdutils.ensure_type(xyz, np.float, 3, 'xyz', add_newaxis_on_deficient_ndim=True)
             coords = xyz
         else:
             raise TypeError('`xyz` must be type {mdtraj.Trajectory, np.ndarray}')
             
         preds = self._expt_data_collection.predict(xyz)
-        potential = np.exp( 1/spreds
+        #potential = np.exp( 1/spreds
 
         
 class EnsemblePotential(Potential):
