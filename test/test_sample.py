@@ -6,6 +6,8 @@ tests for odin/python/sample.py
 import os
 import shutil
 import tempfile
+#import pickle
+import cPickle as pickle
 from glob import glob
 
 import numpy as np
@@ -135,6 +137,23 @@ class TestMDMC(object):
         assert t.xyz.shape[0] == 10
         os.remove('test-traj.h5')
         
-        
-        
-        
+    @skipif(not HAVE_OPENMM, 'No OpenMM')
+    def test_pickle(self):
+        s = pickle.dumps(self.mdmc)
+        print 'pickled ok'
+        mdmc2 = pickle.loads(s)
+        print 'unpickled ok'
+
+        print 'testing has requisite attrs'
+        assert isinstance(mdmc2, sample.MDMC)
+        assert hasattr(mdmc2, '_integrator')
+        assert hasattr(mdmc2, '_simulation')
+        assert hasattr(mdmc2, '_system')
+
+        print 'testing ability to run post pickle'
+        if os.path.exists('test-traj.h5'): os.remove('test-traj.h5')
+        self.mdmc.sample(10, 'test-traj.h5')
+        t = mdtraj.trajectory.load('test-traj.h5')
+        print t.xyz.shape[0]
+        assert t.xyz.shape[0] == 10
+        os.remove('test-traj.h5')        

@@ -8,6 +8,7 @@ Methods for sampling custom potentials.
 import sys
 import numpy as np
 
+import mdtraj
 from mdtraj import reporters
 
 from odin.potential import Potential
@@ -130,7 +131,13 @@ class MDMC(object):
         self.mc_length_increment = 5000 # all MC runs move in increments of this
         
         # positions/topology of system
-        self.topology = topology
+        if isinstance(topology, mdtraj.Topology):
+            self.topology = topology
+        elif isinstance(topology, app.topology.Topology):
+            self.topology = mdtraj.Topology.from_openmm(topology)
+        else:
+            raise TypeError('`topology` must be type: mdtraj.Topology')
+
         self.starting_positions = np.array(starting_positions)
         self.positions = starting_positions
         
@@ -144,19 +151,51 @@ class MDMC(object):
         
         return
     
+    @property
+    def _openmm_attrs(self):
+        """
+        Return a list of OpenMM private attributes the class contains.
+        """
+        return ['_integrator', '_simulation', '_system']
+
     
-    # def __getstate__(self):
-    #     """
-    #     Prepare object for pickling.
-    #     """
-    #     
-    #     self._mm.XmlSerializer()
-    #     
-    # def __setstate__(self, state):
-    #     """
-    #     Gets called upon unpickling
-    #     """
-    #     function(state)
+    def __getstate__(self):
+        """
+        Prepare object for pickling.
+        """
+
+        cpy = self.__dict__.copy()
+
+        # version 1 -- use xml
+        #cpy._integrator = mm.XmlSerializer.serialize(self._integrator)
+        #cpy._simulation = mm.XmlSerializer.serialize(self._simulation)
+        #cpy._system = mm.XmlSerializer.serializeSystem(self._system)
+
+        # version 2 -- delete and re-initialize upon unpickle
+        del cpy['_integrator']
+        del cpy['_simulation']
+        del cpy['_system']
+        del cpy['_forcefield']
+
+        return cpy
+
+        
+    def __setstate__(self, state):
+        """
+        Gets called upon unpickling. `state` is the cpy obj above
+        """
+        # version 1 above
+        #state._integrator = mm.XmlSerializer.deserialize(state._integrator)
+        #state._simulation = mm.XmlSerializer.deserialize(state._simulation)
+        #state._system = mm.XmlSerializer.deserializeSystem(state._system)
+        #self.__dict__ = state
+
+        # version 2
+        self.__dict__ = state
+        self.set_prior(self._prior_xml)
+        self._initialize_simulation()
+
+        return
         
     
     def set_prior(self, prior):
@@ -178,7 +217,7 @@ class MDMC(object):
         
         try:
             self._prior_xml = prior
-            self.forcefield = app.ForceField(self._prior_xml)
+            self._forcefield = app.ForceField(self._prior_xml)
         except Exception as e:
             logger.critical(e)
             raise RuntimeError('Failed to initialized Forcefield. Most likely the'
@@ -191,7 +230,7 @@ class MDMC(object):
         """
         """
 
-        self._system = self.forcefield.createSystem(self.topology, 
+        self._system = self._forcefield.createSystem(self.topology.to_openmm(),
                                                nonbondedMethod=app.CutoffNonPeriodic,
                                                nonbondedCutoff=1.0*unit.nanometers,
                                                constraints=app.HBonds,
@@ -204,7 +243,7 @@ class MDMC(object):
         self._integrator.setConstraintTolerance(0.00001)
         
         mm.Platform.getPlatformByName(self._platform)
-        self._simulation = app.Simulation(self.topology, 
+        self._simulation = app.Simulation(self.topology.to_openmm(),
                                           self._system,
                                           self._integrator) 
                                           #self._platform)
