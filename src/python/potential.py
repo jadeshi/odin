@@ -12,6 +12,8 @@ or mc.py) to run simulations. Further,
 
 import abc
 
+import numpy as np
+
 from mdtraj import Trajectory
 from mdtraj import utils as mdutils
 
@@ -45,9 +47,14 @@ class Prior(Potential):
            Takes a set of xyz coordinates and evaluates the potential on that
            conformation.
            """
-           if not len(xyz.shape) == 3:
-               raise TypeError('`xyz` must be a 3 dimensional array')
-           return np.ones(xyx.shape[0])
+           xyz = np.array(xyz)
+           if len(xyz.shape) == 3:
+               pass
+           elif len(xyz.shape) == 2:
+               xyz = np.expand_dims(xyz, axis=0)
+           else:
+               raise TypeError('`xyz` must be a 2 or 3 dimensional array')
+           return np.ones(xyz.shape[0])
     
         
 class SingleParticlePotential(Potential):

@@ -6,6 +6,7 @@ tests for odin/python/sample.py
 import os
 import shutil
 import tempfile
+from glob import glob
 
 import numpy as np
 from numpy.testing.decorators import skipif
@@ -110,15 +111,17 @@ class TestMDMC(object):
         self.potential = potential.Prior()
         self.prior = 'amber99sbildn.xml'
         self.pdb = mdtraj.load(ref_file('ala2.pdb'))
-        self.topology = self.pdb.top
+        self.topology = PDBFile(ref_file('ala2.pdb')).topology # NEED TO CHANGE LATER
         self.starting_positions = self.pdb.xyz[0]
         self.mdmc = sample.MDMC(self.potential, self.prior, 
                                 self.topology, self.starting_positions,
-                                openmm_platform='reference', platform_properties={})
+                                openmm_platform='Reference', platform_properties={},
+                                steps_per_iter=10)
         
     @skipif(not HAVE_OPENMM, 'No OpenMM')
     def test_set_prior(self):
         # test all the priors included in the Odin repo
+        from glob import glob # not sure why, but this must be here --TJL
         prior_xmls = glob('priors/*.xml')
         for xml in prior_xmls:
             self.mdmc.set_prior(xml)
@@ -126,9 +129,10 @@ class TestMDMC(object):
     @skipif(not HAVE_OPENMM, 'No OpenMM')
     def test_sample(self):
         if os.path.exists('test-traj.h5'): os.remove('test-traj.h5')
-        self.mdmc.sample(100, 'test-traj.h5')
+        self.mdmc.sample(10, 'test-traj.h5')
         t = mdtraj.trajectory.load('test-traj.h5')
-        assert t.xyz[0] == 100
+        print t.xyz.shape[0]
+        assert t.xyz.shape[0] == 10
         os.remove('test-traj.h5')
         
         

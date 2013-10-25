@@ -15,6 +15,7 @@ from odin.potential import Potential
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
+logger.setLevel('DEBUG')
 
 try:
     from simtk.openmm import app
@@ -24,6 +25,12 @@ except ImportError as e:
     logger.critical(e)
     raise ImportError('You must have OpenMM installed to employ the sampler '
                       '(https://simtk.org/home/openmm).')
+
+
+# ---------------------------------
+# universal constants
+k_boltz = 0.0083144621 # kJ / mol-K
+# ---------------------------------
 
 class MCReporter(reporters.HDF5Reporter):
     """
@@ -84,7 +91,7 @@ class MDMC(object):
 
     def __init__(self, potential, prior, topology, starting_positions,
                  scaling_speed=1.1, target_accept_percent=0.75,
-                 steps_per_iter=10000, temperature=300.0,
+                 steps_per_iter=1000, temperature=300.0,
                  openmm_platform='CUDA', 
                  platform_properties={'CudaPrecision': 'mixed'}):
         """
@@ -124,7 +131,7 @@ class MDMC(object):
         
         # positions/topology of system
         self.topology = topology
-        self.starting_positions = starting_positions
+        self.starting_positions = np.array(starting_positions)
         self.positions = starting_positions
         
         # OpenMM Options
@@ -185,7 +192,7 @@ class MDMC(object):
         """
 
         self._system = self.forcefield.createSystem(self.topology, 
-                                               nonbondedMethod=app.PME, 
+                                               nonbondedMethod=app.CutoffNonPeriodic,
                                                nonbondedCutoff=1.0*unit.nanometers,
                                                constraints=app.HBonds,
                                                rigidWater=True, 
@@ -198,10 +205,10 @@ class MDMC(object):
         
         mm.Platform.getPlatformByName(self._platform)
         self._simulation = app.Simulation(self.topology, 
-                                          self.system,
-                                          self._integrator, 
-                                          self._platform, 
-                                          self._properties)
+                                          self._system,
+                                          self._integrator) 
+                                          #self._platform)
+                                         # self._properties)
         self._simulation.context.setPositions(self.positions)
 
         self._simulation.minimizeEnergy()
@@ -232,52 +239,56 @@ class MDMC(object):
         
         # need to figure out how we're going to deal with the traj data -- cant
         # keep it all in memory. Would be good to dump it into a single h5 db
-        self._simulation.reporters.append(MCReporter(self.output_target,
-                                                     self.mc_length_increment, 
-                                                     coordinates=True,
-                                                     time=Falsec,
-                                                     cell=False,
-                                                     potentialEnergy=False,
-                                                     kineticEnergy=False,
-                                                     temperature=False,
-                                                     velocities=False,
-                                                     atomSubset=None))
+        reporter = MCReporter(output_target, self.mc_length_increment, 
+                              coordinates=True, time=False, cell=False,
+                              potentialEnergy=False, kineticEnergy=False,
+                              temperature=False, velocities=False,
+                              atomSubset=None)
+        self._simulation.reporters.append(reporter)
 
         # perform the actual monte carlo
         moves_done = 0
         current_energy = self.potential(self.positions)
         
-        while moves_done < num_moves:
+        while moves_done < num_moves+1:
+
+            logger.debug('%d / %d moves accepted' % (moves_done, num_moves))
             
             # step forward in time
-            logger.debug('Move: %d/%d' % (moves_done+1, num_moves))
             self.total_moves_attempted += 1
             self._simulation.step(self.steps_per_iter)
 
             # accept or reject according to Metropolis
-            new_energy = self.potential(self._simulation.context.getState(getPositions=True).getPositions())
+            new_energy = self.potential( np.array(self._simulation.context.getState(getPositions=True).getPositions()) )
             
             # accept
-            if (new_energy < current_energy) or (np.random.rand() < np.exp(current_energy - new_energy) / self.temperature):
+            logger.debug('\tcurrent energy: %f' % current_energy)
+            logger.debug('\tnew energy:     %f' % new_energy)
+            if (new_energy < current_energy) or (np.random.rand() < np.exp( (current_energy - new_energy) / (k_boltz * self.temperature)) ):
                 
+                logger.debug('\t\tmove accepted')
                 self.accepted += 1
-                self.moves_done += 1
+                moves_done += 1
                 self.positions = self._simulation.context.getState(getPositions=True).getPositions()
                 
             # reject
             else:
-                pass
+                logger.debug('\t\tmove rejected')
                 
             # perform adaptive update on the number of steps performed per attempt
             # to try and get to the `target_accept_percent` acceptance ratio
             self.accepted_ratio = float(self.accepted) / float(self.total_moves_attempted)
             if self.accepted_ratio > self.target_accept_percent:
-                self.steps_per_iter /= self.initial_scaling_speed
+                self.steps_per_iter /= self.scaling_speed
             else:
-                self.steps_per_iter *= self.initial_scaling_speed
+                self.steps_per_iter *= self.scaling_speed
+            self.steps_per_iter = int(self.steps_per_iter)
                 
             self.steps_per_iter -= self.steps_per_iter % self.mc_length_increment
             self.steps_per_iter = max(self.steps_per_iter, self.mc_length_increment)
             logger.debug('Current `steps_per_iter`: %d' % self.mc_length_increment) 
         
+        # close repoter
+        reporter.close()
+
         return
