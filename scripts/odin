@@ -1,0 +1,36 @@
+#!/usr/bin/python
+
+"""
+This is the central ODIN command. It boots up an ODIN 'instance', which consists
+of 
+"""
+
+from odin.utils import odinparser
+from odin.odinfile import OdinFile
+
+from IPython.parallel import Client
+import IPython # must come last -- not sure why
+
+def main(odin_file):
+    
+    
+    
+    of = OdinFile(odin_file_name)
+    
+    
+    # embed the namespace above into an iPython kernel process
+    IPython.embed_kernel(module=None)
+    
+    
+    return
+    
+    
+if __name__ == '__main__':
+    
+    parser = odinparser('Start an ODIN instance to build a structural model from'
+                        'a set of experiments. This command opens up the '
+                        ' interactive ODIN environment.')
+    parser.add_argument('odin_file_name', type=str, help='''Either an existing odin 
+    file (extension: .odin, format: HDF5) or a new file path to log results to.''')
+    
+    main(odin_file_name)

@@ -57,71 +57,19 @@ class Prior(Potential):
            return np.ones(xyz.shape[0])
     
         
-class SingleParticlePotential(Potential):
+class WeightedExptPotential(Potential):
+    """
     
-    def __init__(self, expt_data):
-        
-        
-        return
+    """
     
-        
     def __call__(self, xyz):
-        """
-        Evaluate the potential of `xyz`.
+        return
         
-        Parameters
-        ----------
-        xyz : mdtraj.Trajectory, np.ndarray
-            Either an MD trajectory or 3-d array describing (snapshots, atoms, xyz)
-            
-        Returns
-        -------
-        potential : np.ndarray, float
-            The potential for each frame of `xyz`
-        """
-        
-        if isinstance(xyz, trajectory.Trajectory):
-            coords = xyz.xyz
-        elif isinstance(xyz, np.ndarray):
-            mdutils.ensure_type(xyz, np.float, 3, 'xyz', add_newaxis_on_deficient_ndim=True)
-            coords = xyz
-        else:
-            raise TypeError('`xyz` must be type {mdtraj.Trajectory, np.ndarray}')
-            
-        preds = self._expt_data_collection.predict(xyz)
-        #potential = np.exp( 1/spreds
-
-        
-class EnsemblePotential(Potential):
-    """
-    A posterior potential that enforces a set of experimental constraints.
-    """
-
         
     @property
-    def lambdas_converged(self):
-        return self._evaluate_convergence()
+    def weights(self):
+        return self._weights
         
-        
-    def optimize_lambdas(algorithm='default'):
-        """
-        This is the only place where the experimentally measured data actually
-        gets used.
-        """
-        pass
-    
-
-    def _hessian(self):
-        
-        pass
-        
-        
-    def _evaluate_convergence(self):
-        pass
-        
-
-    def fi(self, xyz):
-        """
-        Compute all the f_i values for a configuration `xyz`
-        """
-        pass
+    def set_weights(self, weights):
+        # checks
+        self._weights = weights

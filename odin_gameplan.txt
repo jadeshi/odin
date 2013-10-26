@@ -1,10 +1,10 @@
 
 To Do
 -----
-(1) Test OpenMM sampler / debug
-(2) Check out ipython for sampling
-(3) Finish implementation of models.py
+(1) Finish implementation of models.py
     ---> merge in potential.py
+(2) implement odin file spec
+(3) write master process
 
 
 
