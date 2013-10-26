@@ -92,6 +92,12 @@ class SingleStructureModel(StructuralModel):
     
         
 class EnsembleModel(StructuralModel):
+    """
+    
+    NOTES:
+    
+    This should compute (once) and store the expt predictions
+    """
     
     def __init__():
         pass
@@ -109,3 +115,7 @@ class EnsembleModel(StructuralModel):
             
             
             potential.optimize_lambdas()
+            
+            
+    def predict():
+        

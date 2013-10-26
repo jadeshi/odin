@@ -115,8 +115,8 @@ class EnsembleExpt(ExptDataBase):
     __metaclass__ = abc.ABCMeta
             
     @property
-    def n_data(self):
-        return self._n_data
+    def num_data(self):
+        return self._num_data
         
     @property
     def values(self):
@@ -255,7 +255,7 @@ class DistanceRestraint(EnsembleExpt):
                              '%s' % str(restraint_array.shape))
         
         self.restraint_array = restraint_array
-        self._n_data = restraint_array.shape[0]
+        self._num_data = restraint_array.shape[0]
         
         if errors == None:
             self._errors = self._default_error()
@@ -299,11 +299,11 @@ class DistanceRestraint(EnsembleExpt):
            len(trajectory) X len(values).
         """
         
-        prediction = np.zeros( (trajectory.n_frames, self._n_data),
+        prediction = np.zeros( (trajectory.n_frames, self._num_data),
                                 dtype=self.restraint_array.dtype )
         
         for i in range(trajectory.n_frames):
-            for j in range(self._n_data):
+            for j in range(self._num_data):
                 
                 ai = int(self.restraint_array[j,0]) # index 1
                 aj = int(self.restraint_array[j,1]) # index 2
@@ -354,7 +354,7 @@ class DistanceRestraint(EnsembleExpt):
         one-D ndarray of len(values).
         """
         # special case -- since this expt value is binary
-        return np.ones(self._n_data) * 0.1 # todo think of something better
+        return np.ones(self._num_data) * 0.1 # todo think of something better
     
         
     def _get_values(self):
