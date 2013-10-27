@@ -28,8 +28,8 @@ class TestDistanceRestraint(object):
         
         self.dr = exptdata.DistanceRestraint(self.restraint_array)
         
-    def test_n_data(self):
-        assert self.dr.n_data == 2
+    def test_num_data(self):
+        assert self.dr.num_data == 2
     
     def test_values(self):
         values = self.dr.values
@@ -52,7 +52,7 @@ class TestDistanceRestraint(object):
     def test_errors(self):
         # smoke test only right now
         err = self.dr.errors
-        assert len(err) == self.dr.n_data
+        assert len(err) == self.dr.num_data
     
     def test_default_error(self):
         assert_array_almost_equal( self.dr.errors, self.dr._default_error() )
