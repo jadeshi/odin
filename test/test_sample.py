@@ -110,7 +110,7 @@ class TestMDMC(object):
     
     def setup(self):
         if not HAVE_OPENMM: return
-        self.potential = potential.Prior()
+        self.potential = potential.FlatPotential()
         self.prior = 'amber99sbildn.xml'
         self.pdb = mdtraj.load(ref_file('ala2.pdb'))
         self.topology = PDBFile(ref_file('ala2.pdb')).topology # NEED TO CHANGE LATER

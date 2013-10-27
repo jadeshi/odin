@@ -19,6 +19,11 @@ from mdtraj import utils as mdutils
 
 from odin import exptdata
 
+import logging
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+#logger.setLevel('DEBUG')
+
 
 class Potential(object):
     """
@@ -30,67 +35,48 @@ class Potential(object):
     __metaclass__ = abc.ABCMeta
     
     @abc.abstractmethod    
-    def __call__(self, xyz):
+    def __call__(self, trajectory):
         """
         Takes a set of xyz coordinates and evaluates the potential on that
         conformation.
         
         Parameters
         ----------
-        xyz : np.ndarray
-            Either a 2 or 3 dimensional array corresponding to a configuration 
-            or set of configurations, respectively.
+        trajectory : mdtraj.Trajectory
+            A trajectory to evaluate the potential at
         """    
         return energy
     
     
-    def _check_xyz(self, xyz):
+    def _check_is_traj(self, trajectory):
         """
-        ensure an `xyz` object faithfully represents an atomic configuration
+        ensure an `trajectory` object faithfully represents an atomic configuration
         """
-        
         # typecheck
-        if type(xyz) == mdtraj.Trajectory:
-            xyz = xyz.xyz
-        elif type(xyz) != np.ndarray:
-            try:
-                xyz = np.array(xyz)
-            except Exception as e:
-                logger.critical(e)
-                raise TypeError('`xyz` must be type {ndarray, mdtraj.Trajectory}'
-                                ', got: %s' % str(type(xyz)))
-               
-        # dimension check
-        if len(xyz.shape) == 3:
-            pass
-        elif len(xyz.shape) == 2:
-            xyz = np.expand_dims(xyz, axis=0)
-        else:
-            raise TypeError('`xyz` must be a 2 or 3 dimensional array')
-        
-        return xyz
+        if not type(trajectory) == Trajectory:
+            raise TypeError('`trajectory` must be type mdtraj.Trajectory, got: %s' % type(trajectory))
+        return
     
     
-class Prior(Potential):
+class FlatPotential(Potential):
     """
     This is a minimal implementation of a Potenial object, used mostly for testing.
     It can also be used to integrate a model in a prior potential only, without
     any experimental information.
     """
     
-    def __call__(self, xyz):
+    def __call__(self, traj):
         """
         Takes a set of xyz coordinates and evaluates the potential on that
         conformation.
         
         Parameters
         ----------
-        xyz : np.ndarray
-            Either a 2 or 3 dimensional array corresponding to a configuration 
-            or set of configurations, respectively.
+        trajectory : mdtraj.Trajectory
+            A trajectory to evaluate the potential at
         """
-        xyz = self._check_xyz(xyz)
-        return np.ones(xyz.shape[0])
+        self._check_is_traj(traj)
+        return np.ones(traj.n_frames)
     
         
 class WeightedExptPotential(Potential):
@@ -115,7 +101,8 @@ class WeightedExptPotential(Potential):
         """
         
         self._experiments = []
-        self.weights = np.array([])
+        self._num_measurements = 0
+        self._weights = np.array([])
         
         for expt in experiments:
             self.add_experiment(expt)
@@ -123,19 +110,18 @@ class WeightedExptPotential(Potential):
         return
     
         
-    def __call__(self, xyz):
+    def __call__(self, trajectory):
         """
         Takes a set of xyz coordinates and evaluates the potential on that
         conformation.
         
         Parameters
         ----------
-        xyz : np.ndarray
-            Either a 2 or 3 dimensional array corresponding to a configuration 
-            or set of configurations, respectively.
+        trajectory : mdtraj.Trajectory
+            A trajectory to evaluate the potential at
         """
-        xyz = self._check_xyz(xyz)
-        energy = sum( self.weights * self.predictions(xyz) )
+        self._check_is_traj(trajectory)
+        energy = np.sum( self.weights[None,:] * self.predictions(trajectory), axis=1 )
         return energy
     
         
@@ -165,6 +151,11 @@ class WeightedExptPotential(Potential):
     @property
     def num_measurements(self):
         return self._num_measurements
+    
+        
+    @property
+    def num_experiments(self):
+        return len(self._experiments)
     
         
     def set_all_weights(self, weights):
@@ -198,12 +189,15 @@ class WeightedExptPotential(Potential):
         """
         
         start = 0
-        for i,expt in self._experiments:
+        for i,expt in enumerate(self._experiments):
             if i == expt_index:
                 end = start + expt.num_data
+                break
             else:
                 start += expt.num_data
-            
+        
+        logger.debug('start/end: %d/%d' % (start, end))
+        
         return self._weights[start:end]
     
         
@@ -223,11 +217,12 @@ class WeightedExptPotential(Potential):
             len(trajectory) X len(values).
         """
         
-        predictions = np.array([])
+        predictions = np.array([[]])
         for expt in self._experiments:
-            predictions = np.concatenate([ predictions, expt.predict(trajectory) ])
+            predictions = np.concatenate([ predictions, expt.predict(trajectory) ], axis=1)
         
-        assert len(predictions) == self._num_measurements
+        assert predictions.shape[0] == trajectory.n_frames
+        assert len(predictions.shape) == 2
         
         return predictions
     
