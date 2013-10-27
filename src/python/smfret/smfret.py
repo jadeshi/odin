@@ -1,5 +1,8 @@
 
-from mdtraj.smfret.distances import residue_residue, atom_atom
+#from smfret import distances
+from distances import residue_residue, atom_atom
+from exptdata import SingleMolecExperiment
+import numpy as np
 
 class smFRET(SingleMolecExperiment):
     """
@@ -46,15 +49,23 @@ class smFRET(SingleMolecExperiment):
     _builtin_distance_fcns = {'residue-residue' : residue_residue,
                               'atom-atom' : atom_atom}
 
+    @classmethod
+    def load(cls, filename):
+        """
+        load a file corresponding to an experimental measurement
+        """
+        raise NotImplementedError("not sure how this should work in this case..")
+
+
     def __init__(self, bins, heights, forster_radius, 
         distance_fcn='residue-residue', distance_kwargs={}, **kwargs):
         
         self._bins = np.array(bins).flatten()
         self._heights = np.array(heights).flatten()
 
-        if self._bins.shape[0] != (self._heights.shape[0] - 1):
-            raise Exception("there should be one more height entry "
-                "than in bins...")
+        if self._bins.shape[0] != (self._heights.shape[0] + 1):
+            raise Exception("there should be one more bin entry "
+                "than in heights...")
     
         distance_kwargs = dict(distance_kwargs.items() + kwargs.items())
         # grab the extra kwargs into this dictionary too. This is
@@ -66,9 +77,11 @@ class smFRET(SingleMolecExperiment):
                 raise Exception("need to input `inds` to use the builtin " 
                     "distance function.")
 
-            distance_fcn = _builtin_distance_fcns[distance_fcn]
+            distance_fcn = self._builtin_distance_fcns[distance_fcn]
 
         self.get_donor_acceptor_distance = lambda traj : distance_fcn(traj, **distance_kwargs)
+
+        self.forster_radius = forster_radius
         
 
     def predict(self, trajectory):
@@ -87,13 +100,13 @@ class smFRET(SingleMolecExperiment):
         """
 
         distances = self.get_donor_acceptor_distance(trajectory)
-        r6 = np.power(self.forster_ration / distances, 6)
+        R6 = np.power(distances / self.forster_radius, 6)
         predictions = 1. / (1. + (R6))
 
         return predictions
 
 
-    def log_likelihood(self, predictions, weights=None)
+    def log_likelihood(self, predictions, weights=None):
         """
         We want to know how likely this ensemble is given the experiment
         but we will use Bayes' rule to calculate the probability of
@@ -119,13 +132,16 @@ class smFRET(SingleMolecExperiment):
             the multinomial parameterized by the structural ensemble
         """
 
+        if weights is None:
+            weights = np.ones(predictions.shape[0])
+
         weights = weights / weights.sum()
 
         heights, edges = np.histogram(predictions, bins=self._bins, weights=weights)
 
         bin_probs = heights / heights.sum()
 
-        log_likelihood = np.log(bin_probs) * self._heights
+        log_likelihood = np.log(bin_probs).dot(self._heights)
         # ^^ technically there is a prefactor too, which corresponds 
         # to the degenerate ways of getting self._heights, but since 
         # the prefactor does not change as a function of the weights,

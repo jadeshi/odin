@@ -102,7 +102,7 @@ class ExptDataBase(object):
         """
 
         predictions = self.predict(trajectory)
-        log_likelihood = self.log_likelihood(prediction)
+        log_likelihood = self.log_likelihood(predictions)
 
         return log_likelihood
         

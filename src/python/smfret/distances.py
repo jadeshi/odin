@@ -31,7 +31,8 @@ def atom_atom(trajectory, inds):
     if inds.shape != (2,):
         raise Exception("inds must contain only two indices")
 
-    return geometry.distance.compute_distances(trajectory, atom_pairs=np.array([inds]))
+    return geometry.distance.compute_distances(trajectory, atom_pairs=np.array([inds]),
+        periodic=False)
 
 
 def residue_residue(trajectory, inds, scheme='min'):
@@ -76,12 +77,13 @@ def residue_residue(trajectory, inds, scheme='min'):
     res0 = trajectory.topology.residue(inds[0])
     res1 = trajectory.topology.residue(inds[1])
 
-    heavy_atom_inds0 = [a.index for a in res0 if a.element.symbol != 'H']
-    heavy_atom_inds1 = [a.index for a in res1 if a.element.symbol != 'H']
+    heavy_atom_inds0 = [a.index for a in res0.atoms if a.element.symbol != 'H']
+    heavy_atom_inds1 = [a.index for a in res1.atoms if a.element.symbol != 'H']
 
-    atom_pairs = np.array(itertools.product(heavy_atom_inds0, heavy_atom_inds1))
+    atom_pairs = np.array(list(itertools.product(heavy_atom_inds0, heavy_atom_inds1)))
 
-    atom_distances = geometry.distance.compute_distances(trajectory, atom_pairs=atom_pairs)
+    atom_distances = geometry.distance.compute_distances(trajectory, 
+        atom_pairs=atom_pairs, periodic=False)
 
     distances = scheme(atom_distances)
 
