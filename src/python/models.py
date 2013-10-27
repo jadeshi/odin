@@ -8,6 +8,8 @@ and can also generate requests for more simulation.
 
 import abc
 
+import IPython
+
 
 class StructuralModel(object):
     """
@@ -28,7 +30,7 @@ class StructuralModel(object):
     
     
     def __call__(self, trajectory):
-        return predictions
+        return log_likelihood
 
     # -----------------
     # dealing with remote workers/sampling
@@ -40,9 +42,11 @@ class StructuralModel(object):
     def num_remotes(self):
         pass
         
-    def _sample(self, potential, n_steps):
+    def sample(self, client, num_structures):
 
-        for i in range(self.num_remotes):
+        if not isinstance(client, IPython.parallel.Client)
+
+        for i in range(len(client)):
             s = Simulation( Potential )
             s.set_positions( choose_random_structure() )
             sims.append(s)
@@ -88,11 +92,17 @@ class SingleStructureModel(StructuralModel):
     
         
 class EnsembleModel(StructuralModel):
+    """
+    
+    NOTES:
+    
+    This should compute (once) and store the expt predictions
+    """
     
     def __init__():
         pass
         
-    def converge_potential(self):
+    def converge(self):
 
         potential = starting_potential
 
@@ -105,3 +115,7 @@ class EnsembleModel(StructuralModel):
             
             
             potential.optimize_lambdas()
+            
+            
+    def predict():
+        

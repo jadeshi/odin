@@ -17,6 +17,14 @@ import numpy as np
 from mdtraj import Trajectory
 from mdtraj import utils as mdutils
 
+from odin import exptdata
+
+import logging
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+#logger.setLevel('DEBUG')
+
+
 class Potential(object):
     """
     Attributes for a kind of experimental potential. Any potential that
@@ -27,101 +35,195 @@ class Potential(object):
     __metaclass__ = abc.ABCMeta
     
     @abc.abstractmethod    
-    def __call__(self, xyz):
+    def __call__(self, trajectory):
         """
         Takes a set of xyz coordinates and evaluates the potential on that
         conformation.
+        
+        Parameters
+        ----------
+        trajectory : mdtraj.Trajectory
+            A trajectory to evaluate the potential at
         """    
         return energy
     
     
-class Prior(Potential):
+    def _check_is_traj(self, trajectory):
+        """
+        ensure an `trajectory` object faithfully represents an atomic configuration
+        """
+        # typecheck
+        if not type(trajectory) == Trajectory:
+            raise TypeError('`trajectory` must be type mdtraj.Trajectory, got: %s' % type(trajectory))
+        return
+    
+    
+class FlatPotential(Potential):
     """
     This is a minimal implementation of a Potenial object, used mostly for testing.
     It can also be used to integrate a model in a prior potential only, without
     any experimental information.
     """
     
-    def __call__(self, xyz):
-           """
-           Takes a set of xyz coordinates and evaluates the potential on that
-           conformation.
-           """
-           xyz = np.array(xyz)
-           if len(xyz.shape) == 3:
-               pass
-           elif len(xyz.shape) == 2:
-               xyz = np.expand_dims(xyz, axis=0)
-           else:
-               raise TypeError('`xyz` must be a 2 or 3 dimensional array')
-           return np.ones(xyz.shape[0])
-    
-        
-class SingleParticlePotential(Potential):
-    
-    def __init__(self, expt_data):
-        
-        
-        return
-    
-        
-    def __call__(self, xyz):
+    def __call__(self, traj):
         """
-        Evaluate the potential of `xyz`.
+        Takes a set of xyz coordinates and evaluates the potential on that
+        conformation.
         
         Parameters
         ----------
-        xyz : mdtraj.Trajectory, np.ndarray
-            Either an MD trajectory or 3-d array describing (snapshots, atoms, xyz)
-            
-        Returns
-        -------
-        potential : np.ndarray, float
-            The potential for each frame of `xyz`
+        trajectory : mdtraj.Trajectory
+            A trajectory to evaluate the potential at
+        """
+        self._check_is_traj(traj)
+        return np.ones(traj.n_frames)
+    
+        
+class WeightedExptPotential(Potential):
+    """
+    This class implements a potential of the form:
+    
+        V(x) = sum_i { lambda_i * f_i(x) }
+        
+    -- lambda_i is a scalar weight
+    -- f_i is an experimental prediction for conformation 'x'
+    """
+    
+    def __init__(self, *experiments):
+        """
+        Initialize WeightedExptPotential.
+        
+        Parameters
+        ----------
+        *args : odin.exptdata.ExptDataBase
+            Pass any number of experimental data sets, all of which are combined
+            into the weighted potenial.
         """
         
-        if isinstance(xyz, trajectory.Trajectory):
-            coords = xyz.xyz
-        elif isinstance(xyz, np.ndarray):
-            mdutils.ensure_type(xyz, np.float, 3, 'xyz', add_newaxis_on_deficient_ndim=True)
-            coords = xyz
-        else:
-            raise TypeError('`xyz` must be type {mdtraj.Trajectory, np.ndarray}')
-            
-        preds = self._expt_data_collection.predict(xyz)
-        #potential = np.exp( 1/spreds
-
+        self._experiments = []
+        self._num_measurements = 0
+        self._weights = np.array([])
         
-class EnsemblePotential(Potential):
-    """
-    A posterior potential that enforces a set of experimental constraints.
-    """
-
+        for expt in experiments:
+            self.add_experiment(expt)
+            
+        return
+    
+        
+    def __call__(self, trajectory):
+        """
+        Takes a set of xyz coordinates and evaluates the potential on that
+        conformation.
+        
+        Parameters
+        ----------
+        trajectory : mdtraj.Trajectory
+            A trajectory to evaluate the potential at
+        """
+        self._check_is_traj(trajectory)
+        energy = np.sum( self.weights[None,:] * self.predictions(trajectory), axis=1 )
+        return energy
+    
+        
+    def add_experiment(self, expt):
+        """
+        Add an experiment to the potential object.
+        
+        Parameters
+        ----------
+        expt : odin.exptdata.ExptDataBase
+            An experiment.
+        """
+        if not isinstance(expt, exptdata.ExptDataBase):
+            raise TypeError('each of `experiments` must inheret from odin.exptdata.ExptDataBase')
+        self._experiments.append(expt)
+        self._num_measurements += expt.num_data
+        self._weights = np.concatenate([ self._weights, np.ones(expt.num_data) ])
+        assert len(self._weights) == self._num_measurements
+        return
+        
         
     @property
-    def lambdas_converged(self):
-        return self._evaluate_convergence()
-        
-        
-    def optimize_lambdas(algorithm='default'):
-        """
-        This is the only place where the experimentally measured data actually
-        gets used.
-        """
-        pass
+    def weights(self):
+        return self._weights
     
-
-    def _hessian(self):
         
-        pass
+    @property
+    def num_measurements(self):
+        return self._num_measurements
+    
         
+    @property
+    def num_experiments(self):
+        return len(self._experiments)
+    
         
-    def _evaluate_convergence(self):
-        pass
-        
-
-    def fi(self, xyz):
+    def set_all_weights(self, weights):
         """
-        Compute all the f_i values for a configuration `xyz`
+        Set the weights for all the experiments.
+        
+        Parameters
+        ----------
+        weights : np.ndarray
+            An array of the weights to use. Must be self.num_measurements long.
         """
-        pass
+        if not type(weights) == np.ndarray:
+            raise
+        if not len(weights) == self.num_measurements:
+            raise ValueError('`weights` must be len self.num_measurements. Got'
+                             ' len: %d, require: %d' % (len(weights), 
+                                                        self.num_measurements))
+            
+        self._weights = weights
+        return
+    
+        
+    def expt_weights(self, expt_index):
+        """
+        Get the weights corresponding to a single experiment.
+        
+        Parameters
+        ----------
+        expt_index : int
+            The index corresponding to the experiment to get weights for.
+        """
+        
+        start = 0
+        for i,expt in enumerate(self._experiments):
+            if i == expt_index:
+                end = start + expt.num_data
+                break
+            else:
+                start += expt.num_data
+        
+        logger.debug('start/end: %d/%d' % (start, end))
+        
+        return self._weights[start:end]
+    
+        
+    def predictions(self, trajectory):
+        """
+        Method to predict the array `values` for each snapshot in `trajectory`.
+        
+        Parameters
+        ----------
+        trajectory : mdtraj.trajectory
+            A trajectory to predict the experimental values for.
+        
+        Returns
+        -------
+        prediction : ndarray, 2-D
+            The predicted values. Will be two dimensional, 
+            len(trajectory) X len(values).
+        """
+        
+        predictions = np.array([[]])
+        for expt in self._experiments:
+            predictions = np.concatenate([ predictions, expt.predict(trajectory) ], axis=1)
+        
+        assert predictions.shape[0] == trajectory.n_frames
+        assert len(predictions.shape) == 2
+        
+        return predictions
+    
+        
