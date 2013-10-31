@@ -1,7 +1,7 @@
 
 #from smfret import distances
-from distances import residue_residue, atom_atom
-from exptdata import SingleMolecExperiment
+from odin.smfret.distances import residue_residue, atom_atom
+from odin.exptdata import SingleMolecExperiment
 import numpy as np
 
 class smFRET(SingleMolecExperiment):

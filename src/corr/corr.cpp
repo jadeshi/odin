@@ -1,11 +1,11 @@
 #include <math.h>
 #include <iostream>
 
-#ifdef NO_OMP
-   #define omp_get_thread_num() 0
-#else
-   #include <omp.h>
-#endif
+// #ifdef NO_OMP
+//    #define omp_get_thread_num() 0
+// #else
+//    #include <omp.h>
+// #endif
 
 #include "corr.h"
 
@@ -35,7 +35,7 @@ Corr::Corr(int N_, float * ar1, float * ar2, float * ar3, short norm_) {
 
 void Corr::correlate(float * ar1, float * ar2, float * arC) 
 {
-  #pragma omp parallel for shared(arC)
+  // #pragma omp parallel for shared(arC)
   for ( int phi=0; phi < N; phi++ ) 
   {
     float counts(0); // keep track of the number of good pairs
