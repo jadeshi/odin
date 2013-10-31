@@ -3021,7 +3021,7 @@ class Rings(object):
         
         
     def correlation_significance(self, q1, q2, max_samples=None, 
-                                 intra=None, inter=None):
+                                 intra=None, inter=None, trim=1):
         """
         Perform a two-way Hotelling T^2 test (multivariate Student's t-test)
         to assess if the means of intra/inter correlators between two q-values
@@ -3040,6 +3040,12 @@ class Rings(object):
         max_samples : int
             The maximium number of samples to compute. If `None`, will compute
             all intra correlators and an equal number of inter correlators.
+            
+        trim : int
+            The number of points to 'trim' from the edges of the correlation
+            function before computing the T^2 test. Recommend this is set to ~5%
+            of the number of phi pixels (rings.num_phi) to eliminate the trivial
+            correlation near delta=0.
         
         Optional Parameters
         -------------------
@@ -3068,6 +3074,15 @@ class Rings(object):
         if inter == None:
             inter = self.correlate_inter(q1, q2, mean_only=False, num_pairs=max_samples)
         
+        # trim the edges off -- these often result in too-large pvals
+        if 2*trim > intra.shape[1]:
+            raise RuntimeError('`trim` is larger than num_phi -- '
+                               'cannot trim out entire correlation function!')
+        trim = int(trim)
+        if trim > 0:
+            intra = intra[:,trim:-trim]
+            inter = inter[:,trim:-trim]
+        
         assert intra.shape[1] == inter.shape[1]
         
         # center the data
@@ -3089,6 +3104,8 @@ class Rings(object):
             W = (np.cov( intra.T ) * n_x + np.cov( inter.T ) * n_y) / (n_x + n_y - 2)
             try:
                 Winv = np.linalg.inv(W)
+                # make sure its not just a bunch of zeros
+                assert np.sum( np.abs( Winv ) ) > 1e-8 * np.product( Winv.shape )
             except Exception as e:
                 logger.warning(e)
                 raise RuntimeError('Could not invert covariance matrix for T^2'
@@ -3099,24 +3116,29 @@ class Rings(object):
                                    ' again.')
         elif intra.shape[1] == 1:
             print "here"
-            W = ( np.var(intra) * n_x + np.var(inter) * n_y ) / (n_x + n_y - 2)
+            W = ( np.var(intra) * n_x + np.var(inter) * n_y ) / (n_x + n_y - 2.0)
             Winv = 1.0 / W
             logger.info('%f %f', mu_d, Winv)
         else:
             raise ValueError('intra/inter arrays must be 2d')
         
         t_sqd = ((n_x * n_y) / (n_x + n_y)) * np.dot(mu_d.T, np.dot(Winv, mu_d))
-        f = (n_x + n_y - p - 1) / ((n_x + n_y - 2)*p) * t_sqd
+        assert t_sqd > 0.0
+        f = (n_x + n_y - p - 1.0) / ((n_x + n_y - 2.0)*p) * t_sqd
+        assert f > 0.0
         
-        rv = stats.f(p, n_x + n_y - 1 - p)
+        rv = stats.f(p, n_x + n_y - 1.0 - p)
         
         # I have the sf (1-CDF) on the next line -- appears to work, but orig
         # I thought this should have been just the CDF. Shrug. --TJL
         p_value = float(rv.sf(f)) # two-tailed by checking against scipy (shrug #2)
 
-        if (p_value > 2.0) or (p_value < 0.0):
+        if (p_value > 1.0) or (p_value < 0.0):
             raise RuntimeError('Invalid p_value determined (%f): out of bounds.'
                                ' Check input.' % p_value)
+        if p == 0.0:
+            logger.warning('p-value is numerically equal to zero -- likely due'
+                           ' to numerical underflow')
 
         return p_value
 
