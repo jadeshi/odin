@@ -63,15 +63,16 @@ class ExptDataBase(object):
     
         
     @abc.abstractmethod
-    def log_likelihood(self, trajectory):
+    def log_likelihood(self, prediction):
         """
         Compute the log_likelihood of each snapshot in `trajectory` given the
         specific model in question.
         
         Parameters
         ----------
-        trajectory : mdtraj.Trajectory
-            A trajectory of conformations to compute the log-likelihood of
+        prediction : np.ndarray, 2-D
+            predictions of the experimental observable for each frame in
+            the dataset. This should be shaped: (n_frames, n_values)
             
         Returns
         -------
@@ -84,25 +85,25 @@ class ExptDataBase(object):
         return log_likelihood
     
         
-    @abc.abstractmethod
-    def prediction_log_likelihood(self, predictions):
+    def predict_log_likelihood(self, trajectory):
         """
         Compute the log_likelihood of each snapshot in `trajectory` given the
         specific model in question.
         
         Parameters
         ----------
-        predictions : np.ndarray
-            The experimental predictions for each trajectory
+        trajectory : mdtraj.Trajectory
+            A trajectory of conformations to compute the log-likelihood
             
         Returns
         -------
         log_likelihood : np.ndarray
             The log-likehood of each trajectory given the model & data
         """
-        # NOTE: the implementation of this method will depend heavily on
-        #       kind of experimental data used -- implementation will be in
-        #       the next level of the class dependency tree
+
+        predictions = self.predict(trajectory)
+        log_likelihood = self.log_likelihood(predictions)
+
         return log_likelihood
         
     
@@ -185,8 +186,9 @@ class SingleMolecExperiment(ExptDataBase):
     """
     
     __metaclass__ = abc.ABCMeta
-    
     # work in progress
+
+    
     
 
 class DistanceRestraint(EnsembleExpt):
