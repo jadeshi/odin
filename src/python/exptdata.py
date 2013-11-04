@@ -106,7 +106,36 @@ class ExptDataBase(object):
 
         return log_likelihood
         
+        
+    @abc.abstractmethod
+    def _get_pymc_error_model(self, predictions):
+        """
+        Return the pymc error model to be used.
+        
+        Author notes: this function is a bit tricky, because the way pymc works
+        here is a bit unusual. In pymc, there are 'parameters' and 'observations',
+        here the 'observations' are the experimental measurements (self.values)
+        and the parameters should be based on the model predictions (e.g. 
+        <f_i>_lambda for an ensemble measurement in a MaxEntEnsemble model).
+        
+        Parameters
+        ----------
+        predictions : pymc.Variable or function(pymc.Variable)
+            A pymc variable or function on that variable. Either works.
+        
+        Returns
+        -------
+        dist : pymc.distributions.distribution.Distribution
+            A pymc distribution instance, containing the error information of
+            the model. Should work in such a way that self.values gives what
+            pymc calls "observables" -- that is, an observed dataset under
+            the model distribution for this function.
+        """
+        # example:
+        # dist = pymc.Normal.dist(mu=predictions, sd=self.errors)
+        return dist
     
+
 class EnsembleExpt(ExptDataBase):
     """
     A container object for a set of experimental data performed on an ensemble
@@ -375,3 +404,23 @@ class DistanceRestraint(EnsembleExpt):
         """
         # this method is dumb for this class, see if we need it for others
         return self._errors
+    
+        
+    def _get_pymc_error_model(self, predictions):
+        """
+        Return the pymc error model, a diagonal-covariance MVN.
+        
+        Parameters
+        ----------
+        predictions : pymc.Variable or function(pymc.Variable)
+            A pymc variable or function on that variable. Either works.
+        
+        Returns
+        -------
+        dist : pymc.distributions.distribution.Distribution
+            A pymc distribution instance, containing the error information of
+            the model. Should work in such a way that self.values gives what
+            pymc calls "observables" -- that is, an observed dataset under
+            the model distribution for this function.
+        """
+        return pymc.Normal.dist(mu=predictions, sd=self.errors, size=(self.num_data,))
