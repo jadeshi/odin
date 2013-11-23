@@ -2047,7 +2047,12 @@ class Shotset(object):
                      
             if (hasattr(fiter.seed_shot, 'mask') and mask != None):
                 mask = np.logical_and(mask, fiter.seed_shot.mask)
+                logger.debug('mask object taken from combo of kwarg and fiter')
+            elif hasattr(fiter.seed_shot, 'mask'):
+                mask = fiter.seed_shot.mask
+                logger.debug('mask taken from fiter seed shot')
             else:
+                logger.debug('mask object taken from passed kwarg')
                 pass # mask = mask
  
         else:

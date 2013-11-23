@@ -199,7 +199,7 @@ class CBF(SingleShotBase):
         # add mask specific to the detector
         if self.detector_type.startswith('PILATUS 6M'):
             
-            logger.info('Identified detector type as: PILATUS 6M')
+            logger.debug('Identified detector type as: PILATUS 6M')
             
             # add the default mask
             if self.mask == None:
