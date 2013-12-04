@@ -1101,7 +1101,7 @@ class Shotset(object):
         if self._intensities_type == 'array':
             i_iter = self._intensities
         elif self._intensities_type == 'tables':
-            i_iter = self._intensities.iterrows()
+            i_iter = self._intensities.iterrows(step=1)
             i_iter.nrow = -1 # reset the iterator to the start
         elif self._intensities_type == 'fileiterator':
             i_iter = self._intensities.iterfiles()
