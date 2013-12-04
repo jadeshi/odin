@@ -6,6 +6,11 @@ Models odin can create. These manage the backend statistical integration (MCMC)
 and can also generate requests for more simulation.
 """
 
+import logging
+logging.basicConfig()
+logger = logging.getLogger(__name__)
+#logger.setLevel('DEBUG')
+
 import abc
 
 import pymc
@@ -13,6 +18,16 @@ import numpy as np
 import IPython as ip
 
 from odin import potential
+from odin import utils
+
+try:
+    from simtk.openmm import app
+    import simtk.openmm as mm
+    from simtk import unit
+    OPENMM_INSTALLED = True
+except ImportError as e:
+    logger.debug(e)
+    OPENMM_INSTALLED = False
 
 
 class StructuralModel(object):
@@ -22,17 +37,11 @@ class StructuralModel(object):
     also has the implementation for how to work with remote workers. It also
     contains implementations for interacting with an HDF5 file that contains
     all the relevant information ODIN employs to construct a strutural model.
-
-    Notes
-    -----
-    -- Thinking for a first attempt, work synchronously. Async can happen later
-    -- Need to find out if OpenMM can return trajectory objects to memory
-    -- Thinking iPython can handle the mapping to remotes
     """
     
     __metaclass__ = abc.ABCMeta
     
-    
+    @abc.abstractmethod
     def __call__(self, trajectory):
         return log_likelihood
 
@@ -40,15 +49,18 @@ class StructuralModel(object):
     # dealing with remote workers/sampling
     
     def connect_remote(self, remote):
-        pass
+        raise NotImplementedError()
 
     @property
     def num_remotes(self):
-        pass
+        raise NotImplementedError()
         
     def sample(self, client, num_structures):
+        
+        raise NotImplementedError()
 
-        if not isinstance(client, IPython.parallel.Client)
+        if not isinstance(client, IPython.parallel.Client):
+            pass
 
         for i in range(len(client)):
             s = Simulation( Potential )
@@ -67,44 +79,69 @@ class StructuralModel(object):
     # conformation loading, prediction
         
     def load_conformations(self, conformations):
-        pass
+        raise NotImplementedError()
     
-    @property
+    @abc.abstractproperty
     def conformations(self):
         return trajectories
         
-    @property
-    def predictions(self):
+    @abc.abstractproperty
+    def num_measurements(self):
+        return num_measurements
+        
+    @abc.abstractproperty
+    def snapshot_predictions(self):
+        return
+        
+    @abc.abstractproperty
+    def observable_predictions(self):
         return
         
     # -----------------
     # file handling
-    
-    @classmethod
+    @abc.abstractmethod
+    # @classmethod
     def load(cls, filename):
         pass
-        
     
-        
     
-
-
-class SingleStructureModel(StructuralModel):
     
-    def __init__():
-        pass
+class MaxEntEnsembleModel(StructuralModel, potential.ExptPotential):
+    """
+    Generate an ensemble model that gives the Boltzmann weights over a set of
+    conformations that guarentees the ensemble (a) reproduces a set of 
+    experimental observations (including error over measurements) while (b)
+    choosing between degenerate options of (a) by minimizing the relative
+    entropy with respect to some prior.
     
-        
-class MaxEntEnsembleModel(StructuralModel, potential.WeightedExptPotential):
+    Citations
+    ---------
+    ..[1] Kyle
+    ..[2] TJ
     """
     
-    NOTES:
-    
-    This should compute (once) and store the expt predictions
-    """
-    
-    def __init__(self, experiments, lambda_prior, nuts_options={}):
+    def __init__(self, structural_prior, *experiments):
         """
+        Initialize an instance of MaxEntEnsembleModel.
+        
+        Parameters
+        ----------
+        structural_prior : str OR np.ndarray
+            Either this is a str defining a forcefield to employ as a prior
+            (e.g. 'IdealGas.xml') or, if `initial_conformations` is supplied,
+            this can be a 1D numpy array of the same length of the trajectory
+            supplied there defining the prior population weights for each
+            conformation.
+        
+        experiments : odin.exptdata.ExptDataBase
+            Many experiments to include in the model.
+            
+        intial_conformations : mdtraj.Trajectory
+            A set of conformations for the model to weight. Each will be
+            assigned a Boltzmann probability when the model is trained.
+            
+        nuts_options : dict
+            Kwargs for pymc's no-U turn sampler (NUTS) algorithm.
         """
         
         
@@ -116,90 +153,66 @@ class MaxEntEnsembleModel(StructuralModel, potential.WeightedExptPotential):
         self._num_measurements = 0
         self._weights = np.array([])
         
-        # deal w arguments of __init__
-        # experiments
-        for expt in experiments:
-            self.add_experiment(expt)
+        # --- deal w arguments of __init__
+        # structural_prior
+        if type(structural_prior) == str:
+            try:
+                self._prior_xml = structural_prior
+                self._forcefield = app.ForceField(self._prior_xml)
+            except Exception as e:
+                logger.debug(e)
+                self._OPENMM = False
+                logger.warning('Failed to initialized Forcefield. Most likely the'
+                                ' prior potential you requested, %s, does not exist'
+                                ' in the local OpenMM implementation, or you do not have OpenMM installed. Continuing, but you will need to supply pre-compp.' % structural_prior)
+            else:
+                self._OPENMM = OPENMM_INSTALLED
             
-        # lambda_prior
-        if not isinstance(lambda_prior, pymc.distributions.distribution.Distribution):
-            raise TypeError('self._prior_dist must be an instance of '
-                            'pymc.distributions.distribution.Distribution, got:'
-                            ' %s' % type(self._lambda_prior_dist))
+        elif type(structural_prior) == np.ndarray:
+            if initial_conformations == None:
+                raise Exception() 
+            self._prior_xml  = None
+            self._forcefield = None
+            
         else:
-            self._lambda_prior_dist = lambda_prior
+            raise TypeError('`structural_prior` must be type {str, np.ndarray},'
+                            ' got: %s' % type(structural_prior))
             
         # nuts_options
-        self.nuts_options = nuts_options
+        self.nuts_options = {} # nuts_options
+        
+        # experiments
+        for expt in experiments:
+            self.add_experiment(expt) # from potential.ExptPotential
         
         return
     
         
-    @property
-    def lambda_prior_dist(self):
-        if not isinstance(self._prior_dist, pymc.distributions.distribution.Distribution):
-            raise TypeError('self._prior_dist must be an instance of '
-                            'pymc.distributions.distribution.Distribution, got:'
-                            ' %s' % type(self._lambda_prior_dist))
-        return self._lambda_prior_dist
-        
-    # -------------------
-    # methods from potential.WeightedExptPotential we may not want...
-    #
-    
     def __call__(self):
+        """
+        """
+        raise NotImplementedError()
         return
+    
     
     @property
-    def weights(self):
-        return self._weights
-    
-        
-    def set_all_weights(self, weights):
-        """
-        Set the weights for all the experiments.
-
-        Parameters
-        ----------
-        weights : np.ndarray
-            An array of the weights to use. Must be self.num_measurements long.
-        """
-        if not type(weights) == np.ndarray:
-            raise
-        if not len(weights) == self.num_measurements:
-            raise ValueError('`weights` must be len self.num_measurements. Got'
-                             ' len: %d, require: %d' % (len(weights), 
-                                                        self.num_measurements))
-
-        self._weights = weights
+    def structural_prior(self):
+        raise NotImplementedError()
         return
+        
+        
+    @property
+    def conformations(self):
+        return self._conformations
+        
+        
+    @property
+    def num_measurements(self):
+        return self._num_measurements
     
         
-    def expt_weights(self, expt_index):
-        """
-        Get the weights corresponding to a single experiment.
-        
-        Parameters
-        ----------
-        expt_index : int
-            The index corresponding to the experiment to get weights for.
-        """
-        
-        start = 0
-        for i,expt in enumerate(self._experiments):
-            if i == expt_index:
-                end = start + expt.num_data
-                break
-            else:
-                start += expt.num_data
-        
-        logger.debug('start/end: %d/%d' % (start, end))
-        
-        return self._weights[start:end]
-        
-    # -------------------
-        
-    def predictions(self, trajectory):
+    #@utils.memorize
+    def snapshot_predictions(self, trajectory):
         """
         Method to predict the array `values` for each snapshot in `trajectory`.
         
@@ -215,19 +228,19 @@ class MaxEntEnsembleModel(StructuralModel, potential.WeightedExptPotential):
             len(trajectory) X len(values).
         """
         
-        # This method overwrites the one inhereted from WeightedExptPotential
+        # This method overwrites the one inhereted from ExptPotential
         # the only addition is that it implements a caching mechanism so that
         # we don't recompute the predictions if `trajectory` is unchanged
         
-        if trajectory == self._conformations:
+        if (trajectory == self._conformations) and (self._predictions != None):
             predictions = self._predictions
         else:
-            predictions = super(EnsembleModel, self).predictions(trajectory)
+            predictions = super(MaxEntEnsembleModel, self).predictions(trajectory)
             self._predictions = predictions
         
         assert predictions.shape == (trajectory.n_frames, self.num_measurements)
         
-        return
+        return predictions
     
         
     def _probx_lambda(self, trajectory, lambdas):
@@ -254,7 +267,7 @@ class MaxEntEnsembleModel(StructuralModel, potential.WeightedExptPotential):
         
         self._check_is_traj(trajectory)
         
-        energy = np.sum( lambdas[None,:] * self.predictions(trajectory), axis=1 )
+        energy = np.sum( lambdas[None,:] * self.snapshot_predictions(trajectory), axis=1 )
         assert energy.shape == (trajectory.n_frames,)
         
         probs = np.exp(-1.0 * energy)
@@ -275,20 +288,21 @@ class MaxEntEnsembleModel(StructuralModel, potential.WeightedExptPotential):
         Parameters
         ----------
         lambdas : np.ndarray
-            An array of the lagrange multipliers, lambda_i
+            An array of the lagrange multipliers, lambda_i.
             
         expt_index : int
             An index of the experiment to compute the predictions for. If `None`
-            compute observable precitions for all experiments
+            compute observable precitions for all experiments.
             
         Returns
         -------
         avg_fi : np.ndarray
+            A shape (num_measurements,) array of ensemble averaged predictions.
         """
         px = self._probx_lambda(self.conformations, lambdas)
         
         if expt_index == None:
-            avg_fi = sum(px * self.predictions(self.conformations)[None,:], axis=1)
+            avg_fi = sum(px * self.snapshot_predictions(self.conformations)[None,:], axis=1)
         elif expt_index > self.num_experiments-1:
             raise RuntimeError('Asked for the observable predictions from '
                                'experiment %d (zero-indexed), only %d '
@@ -299,64 +313,156 @@ class MaxEntEnsembleModel(StructuralModel, potential.WeightedExptPotential):
         assert avg_fi.shape == (self.num_measurements,)
         return avg_fi
     
+    
+    def observable_prediction_covariance(self, lambdas, expt_index=None):
+        """
+        Computes and returns the covariance matrix
+        
+            Sigma_ij = <f_i(x) f_j(x)>_lambda - <f_i(x)>_lambda * <f_j(x)>_lambda 
+                                  
+        Parameters
+        ----------
+        lambdas : np.ndarray
+            An array of the lagrange multipliers, lambda_i.
+            
+        expt_index : int
+            An index of the experiment to compute the predictions for. If `None`
+            compute observable precitions for all experiments.
+            
+        Returns
+        -------
+        sigma : np.ndarray
+            A shape (num_measurements,num_measurements) array of the prediction
+            covariance matrix.
+        """
+        fi = self.snapshot_predictions()
+        sigma = np.cov(fi)
+        assert sigma.shape == (self.num_measurements, self.num_measurements)
+        return sigma
+        
         
     @property
     def _lambda_posterior_model(self):
         """
         Return a pymc model for the posterior over lambda.
+        
+        Returns
+        -------
+        model : pymc.model.Model
+            A model object describing the Bayesian model for the posterior
+            over lambdas.
         """
         
         # warning: this block of code involves some trickery!
         
-        # construct a model and add the prior over lambdas
+        # construct a model
         model = pymc.Model()
-        lambda_prior = model.Var('prior', self.lambda_prior_dist)
-
+        
         # we add each experiment as a "Data" type to the pymc model
         # here the "observables" (data values) are what we observed in the
-        # experiment, and the parameters are a function of the current
-        # MCMC sample of lambdas.        
-        for expt in self._experiments:
+        # experiment
+               
+        for i,expt in enumerate(self._experiments):
                         
-            dist = expt._error_model( self.observable_predictions(lambda_prior) )
-            if not isinstance(pymc.distributions.distribution.Distribution, dist):
-                raise TypeError('Incorrect return from %s._error_model: the'
-                                ' experiments error model function does not'
-                                ' work correctly. The implementation should'
-                                ' return a tuple (dist, dist_params), see'
-                                ' the documentation for more detail.' % str(expt))
+            expt_pymc_model = expt._pymc_error_model() # is a dict
             
+            if not 'likelihood' in expt_pymc_model.keys():
+                raise RuntimeError('Could not find `likelihood` entry in the '
+                                   'pymc model of experiment %d (%s). Please '
+                                   'check the implementation of the error '
+                                   'models of all experiments included in the'
+                                   ' model.' % (i, str(expt)))
+            
+            # add all variables from the error model to the pyMC model
+            for varname in expt_pymc_model:
+                
+                if not isinstance(pymc.distributions.distribution.Distribution,\
+                                  expt_pymc_model[varname]):
+                    raise TypeError('Incorrect return from %s._error_model: the'
+                                    ' experiments error model function does not'
+                                    ' work correctly. The implementation should'
+                                    ' return a tuple (dist, dist_params), see'
+                                    ' the documentation for more detail.' % str(expt))
+                                    
+                model.Var(varname + '-e' + str(i), expt_pymc_model[varname])
+            
+            # add the observed data
             model.Data(expt.values, dist)
+            
+            # generate a distribution "transform" that takes the likelihood in
+            # observable-space and transforms it to lambda-space
+            
+            # NOTE: the 'fwd' function below is *not* correct, but it only is 
+            # used for mean/mode calculations of the dist in pymc -- so long
+            # as we avoid those, we should be OK
+            fwd = lambda x : x # this is the wrong (but OK) one
+            bkd = lambda x : self.observable_predictions(x, expt_index=i)
+            J   = lambda x : np.abs(np.linalg.det(self.observable_prediction_covariance(x, expt_index=i)))
+            TF = pymc.distributions.transforms.transform('posterior', fwd, bkd, J)
+            
+            # transform the error model from observable space to lambda space
+            # and add it to the pymc model
+            lambda_likehihood = TF.apply(dist)
+            model.Var('lambda-likelihood'+ '-e' + str(i), lambda_likehihood)
             
         return model
     
         
     def sample_lambda_posterior(self, num_steps):
         """
+        Sample values of lambda from the model posterior using the NUTS
+        Hamiltonian MC algorithm. Performed with automatic tuning courtesy of
+        pymc.
+        
+        Parameters
+        ----------
+        num_steps : int
+            The number of MCMC steps to take.
+            
+        Returns
+        -------
+        trace : np.ndarray
+            A shape-(num_steps, num_measurements) array with sequential samples
+            of lambda corresponding to each experimental measurement.
         """
+        
         # right now regenerating the model object each time we want to sample
         # this will cost a little, but ensure we have the latest 
         # -- so could be sped up if we check to see what expts are in a chached
         #    model
+        
         m = self._lambda_posterior_model()
         trace = m.sample(num_steps, pymc.NUTS(**self.nuts_params))
+        
+        # stack the sampled lambdas for each experiment
+        lambda_trace = np.concatenate( [ trace.samples[('lambda-likelihood'+ '-e' + str(i))].vals[0] for i in range(self.num_experiments) ], axis=1 )
+        lambda_trace = np.squeeze(lambda_trace)
+        
+        assert lambda_trace.shape == (num_steps, self.num_measurements)
+        
         return trace
     
         
-    def _converge_lambdas(self):
-
+    # def _converge_lambdas(self):
+    # 
+    #     raise NotImplementedError()
+    # 
+    #     potential = starting_potential
+    # 
+    #     while not potential.converged:
+    #         while round_not_converged:
+    #             self._sample_potential(potential, n_steps)
+    #         
+    #             # need to think about how to do the function below
+    #             round_not_converged = evaluate_round_convergence()
+    #         
+    #         
+    #         potential.optimize_lambdas()
+    #     return
+    
+    
+    @classmethod
+    def load(self, filename):
         raise NotImplementedError()
-
-        potential = starting_potential
-
-        while not potential.converged:
-            while round_not_converged:
-                self._sample_potential(potential, n_steps)
-            
-                # need to think about how to do the function below
-                round_not_converged = evaluate_round_convergence()
-            
-            
-            potential.optimize_lambdas()
         return
         

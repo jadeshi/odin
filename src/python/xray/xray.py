@@ -1101,6 +1101,16 @@ class Shotset(object):
         if self._intensities_type == 'array':
             i_iter = self._intensities
         elif self._intensities_type == 'tables':
+            if self._intensities.nrowsinbuf > 1000:
+                logger.warning('pytables buffer includes space for a large '
+                               'number (%d) of shots -- this may overflow your '
+                               'memory. You have two options to decrease this '
+                               'number if desired. Best is to set your pytables'
+                               ' "IO_BUFFER_SIZE" parameter to a reasonable '
+                               'value -- see the pytables documentation for '
+                               'more information. For an immediate fix, set '
+                               '"Shotset._intensities.nrowsinbuf = 1", which '
+                               'will set your buffer to a single shot.' % self._intensities.nrowsinbuf)
             i_iter = self._intensities.iterrows()
             i_iter.nrow = -1 # reset the iterator to the start
         elif self._intensities_type == 'fileiterator':
@@ -2305,6 +2315,16 @@ class Rings(object):
         if self._polar_intensities_type == 'array':
             pi_iter = self._polar_intensities
         elif self._polar_intensities_type == 'tables':
+            if self._polar_intensities.nrowsinbuf > 1000:
+                logger.warning('pytables buffer includes space for a large '
+                               'number (%d) of shots -- this may overflow your '
+                               'memory. You have two options to decrease this '
+                               'number if desired. Best is to set your pytables'
+                               ' "IO_BUFFER_SIZE" parameter to a reasonable '
+                               'value -- see the pytables documentation for '
+                               'more information. For an immediate fix, set '
+                               '"Rings._polar_intensities.nrowsinbuf = 1", which '
+                               'will set your buffer to a single shot.' % self._polar_intensities.nrowsinbuf)
             pi_iter = self._polar_intensities.iterrows()
             pi_iter.nrow = -1 # reset the iterator to the start
             

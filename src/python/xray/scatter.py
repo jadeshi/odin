@@ -307,6 +307,7 @@ def sph_hrm_coefficients(trajectory, weights=None, q_magnitudes=None,
                     Plm = special.lpmv(m, l, sph_quad_900[:,2])
                     Ylm = N * np.exp( 1j * m * q_phi ) * Plm
 
+                    # TJL note to self: isnt the m index for Slm wrong? can be negative...
                     Slm[il, m, iq] = np.sum( S_q * Ylm * sph_quad_900[:,3] )
     
         # now, reduce the Slm solution to C_l(q1, q2)

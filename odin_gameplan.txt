@@ -1,4 +1,11 @@
 
+IMMEDIATE:
+
+(1) implement log_likehihood method using pymc for ExptData models
+(2) test all methods in ExptData
+(3) test implemented methods in model.py
+
+
 To Do
 -----
 (1) Finish implementation of models.py

@@ -9,6 +9,7 @@ import os
 import abc
 from glob import glob
 
+import pymc
 import numpy as np
 from mdtraj import io
 
@@ -62,78 +63,85 @@ class ExptDataBase(object):
         return prediction
     
         
+    # @abc.abstractmethod
+    # def log_likelihood(self, prediction):
+    #     """
+    #     Compute the log_likelihood of each snapshot in `trajectory` given the
+    #     specific model in question.
+    #     
+    #     Parameters
+    #     ----------
+    #     prediction : np.ndarray, 2-D
+    #         predictions of the experimental observable for each frame in
+    #         the dataset. This should be shaped: (n_frames, n_values)
+    #         
+    #     Returns
+    #     -------
+    #     log_likelihood : np.ndarray
+    #         The log-likehood of each trajectory given the model & data
+    #     """
+    #     # NOTE: the implementation of this method will depend heavily on
+    #     #       kind of experimental data used -- implementation will be in
+    #     #       the next level of the class dependency tree
+    #     return log_likelihood
+    # 
+    #     
+    # def predict_log_likelihood(self, trajectory):
+    #     """
+    #     Compute the log_likelihood of each snapshot in `trajectory` given the
+    #     specific model in question.
+    #     
+    #     Parameters
+    #     ----------
+    #     trajectory : mdtraj.Trajectory
+    #         A trajectory of conformations to compute the log-likelihood
+    #         
+    #     Returns
+    #     -------
+    #     log_likelihood : np.ndarray
+    #         The log-likehood of each trajectory given the model & data
+    #     """
+    # 
+    #     predictions = self.predict(trajectory)
+    #     log_likelihood = self.log_likelihood(predictions)
+    # 
+    #     return log_likelihood
+        
+        
     @abc.abstractmethod
-    def log_likelihood(self, prediction):
-        """
-        Compute the log_likelihood of each snapshot in `trajectory` given the
-        specific model in question.
-        
-        Parameters
-        ----------
-        prediction : np.ndarray, 2-D
-            predictions of the experimental observable for each frame in
-            the dataset. This should be shaped: (n_frames, n_values)
-            
-        Returns
-        -------
-        log_likelihood : np.ndarray
-            The log-likehood of each trajectory given the model & data
-        """
-        # NOTE: the implementation of this method will depend heavily on
-        #       kind of experimental data used -- implementation will be in
-        #       the next level of the class dependency tree
-        return log_likelihood
-    
-        
-    def predict_log_likelihood(self, trajectory):
-        """
-        Compute the log_likelihood of each snapshot in `trajectory` given the
-        specific model in question.
-        
-        Parameters
-        ----------
-        trajectory : mdtraj.Trajectory
-            A trajectory of conformations to compute the log-likelihood
-            
-        Returns
-        -------
-        log_likelihood : np.ndarray
-            The log-likehood of each trajectory given the model & data
-        """
-
-        predictions = self.predict(trajectory)
-        log_likelihood = self.log_likelihood(predictions)
-
-        return log_likelihood
-        
-        
-    @abc.abstractmethod
-    def _get_pymc_error_model(self, predictions):
+    def _pymc_error_model(self, predictions):
         """
         Return the pymc error model to be used.
         
         Author notes: this function is a bit tricky, because the way pymc works
-        here is a bit unusual. In pymc, there are 'parameters' and 'observations',
-        here the 'observations' are the experimental measurements (self.values)
-        and the parameters should be based on the model predictions (e.g. 
-        <f_i>_lambda for an ensemble measurement in a MaxEntEnsemble model).
-        
-        Parameters
-        ----------
-        predictions : pymc.Variable or function(pymc.Variable)
-            A pymc variable or function on that variable. Either works.
-        
+        here is a bit unusual. Heads up!
+
         Returns
         -------
-        dist : pymc.distributions.distribution.Distribution
-            A pymc distribution instance, containing the error information of
-            the model. Should work in such a way that self.values gives what
-            pymc calls "observables" -- that is, an observed dataset under
-            the model distribution for this function.
+        error_model : dict
+            A dictionary where the keys are names of the variables, and the
+            values are pymc distributions to be included in the model. One
+            of the keys must be 'likelihood', which indicates to the code
+            downstream which distribution experimental observations should be
+            associated with.
         """
         # example:
-        # dist = pymc.Normal.dist(mu=predictions, sd=self.errors)
-        return dist
+        
+        # set priors -- these could also just be scalars if you want the
+        # prior to be a delta function
+        mean_prior = pymc.Uniform.dist(upper=5.0, lower=-5.0, shape=(self.n_measurements,1))
+        std_prior  = pymc.Uniform.dist(upper=2.0, lower=0.0, shape=(self.n_measurements,1))
+        
+        # every model must have a likelihood
+        likelihood = pymc.Normal.dist(mu=mean_prior, sd=std_prior)
+        
+        error_model = {
+                      'mean_prior' : mean_prior,
+                      'std_prior'  : std_prior,
+                      'likelihood' : likelihood
+                      }
+                      
+        return error_model
     
 
 class EnsembleExpt(ExptDataBase):
@@ -147,20 +155,15 @@ class EnsembleExpt(ExptDataBase):
     @property
     def num_data(self):
         return self._num_data
-        
+    
+    
     @property
     def values(self):
         """
         The measured values of each data point
         """
         return self._get_values()
-        
-    @property
-    def errors(self):
-        """
-        The errors associated with each experiment.
-        """
-        return self._get_errors()
+    
         
     def log_likelihood(self, trajectory):
         """
@@ -183,13 +186,13 @@ class EnsembleExpt(ExptDataBase):
     # Classes that inherent from ExptData must implement all the methods below 
     # this is enforced by the abstract class module
         
-    @abc.abstractmethod
-    def _default_error(self):
-        """
-        Method to estimate the error of the experiment (conservatively) in the
-        absence of explicit input.
-        """
-        return error_guess
+    # @abc.abstractmethod
+    # def _default_error(self):
+    #     """
+    #     Method to estimate the error of the experiment (conservatively) in the
+    #     absence of explicit input.
+    #     """
+    #     return error_guess
         
     @abc.abstractmethod
     def _get_values(self):
@@ -199,13 +202,13 @@ class EnsembleExpt(ExptDataBase):
         """
         return values
 
-    @abc.abstractmethod
-    def _get_errors(self):
-        """
-        Return an array `errors`, in an order that ensures it will match up
-        with the method self.predict()
-        """
-        return errors
+    # @abc.abstractmethod
+    # def _get_errors(self):
+    #     """
+    #     Return an array `errors`, in an order that ensures it will match up
+    #     with the method self.predict()
+    #     """
+    #     return errors
         
         
 class SingleMolecExperiment(ExptDataBase):
@@ -216,7 +219,7 @@ class SingleMolecExperiment(ExptDataBase):
     
     __metaclass__ = abc.ABCMeta
     # work in progress
-
+    #raise NotImplementedError()
     
     
 
@@ -288,10 +291,10 @@ class DistanceRestraint(EnsembleExpt):
         self.restraint_array = restraint_array
         self._num_data = restraint_array.shape[0]
         
-        if errors == None:
-            self._errors = self._default_error()
-        else:
-            self._errors = errors
+        # if errors == None:
+        #     self._errors = self._default_error()
+        # else:
+        #     self._errors = errors
         
         return
     
@@ -353,39 +356,27 @@ class DistanceRestraint(EnsembleExpt):
         return prediction
         
         
-    def prediction_log_likelihood(self, predictions):
-        """
-        Compute the log_likelihood of each snapshot in `trajectory` given the
-        specific model in question.
-        
-        Parameters
-        ----------
-        predictions : np.ndarray
-            The experimental predictions for each trajectory
-            
-        Returns
-        -------
-        log_likelihood : np.ndarray
-            The log-likehood of each trajectory given the model & data
-        """
-        
-        # normal errors w/o correlation
-        log_likelihood = np.log( 1.0 / (self.errors * np.sqrt(2.0 * np.pi)) ) -\
-                         np.power(predictions - self.values, 2) / (2.0 * self.errors)
-        
-        return log_likelihood
-    
-        
-    def _default_error(self):
-        """
-        Method to estimate the error of the experiment (conservatively) in the
-        absence of explicit input.
-        
-        The errors are standard deviations around the mean, and thus are an
-        one-D ndarray of len(values).
-        """
-        # special case -- since this expt value is binary
-        return np.ones(self._num_data) * 0.1 # todo think of something better
+    # def prediction_log_likelihood(self, predictions):
+    #     """
+    #     Compute the log_likelihood of each snapshot in `trajectory` given the
+    #     specific model in question.
+    #     
+    #     Parameters
+    #     ----------
+    #     predictions : np.ndarray
+    #         The experimental predictions for each trajectory
+    #         
+    #     Returns
+    #     -------
+    #     log_likelihood : np.ndarray
+    #         The log-likehood of each trajectory given the model & data
+    #     """
+    #     
+    #     # normal errors w/o correlation
+    #     log_likelihood = np.log( 1.0 / (self.errors * np.sqrt(2.0 * np.pi)) ) -\
+    #                      np.power(predictions - self.values, 2) / (2.0 * self.errors)
+    #     
+    #     return log_likelihood
     
         
     def _get_values(self):
@@ -397,30 +388,19 @@ class DistanceRestraint(EnsembleExpt):
         return values
     
         
-    def _get_errors(self):
+    def _pymc_error_model(self):
         """
-        Return an array `errors`, in an order that ensures it will match up
-        with the method self.predict()
-        """
-        # this method is dumb for this class, see if we need it for others
-        return self._errors
-    
-        
-    def _get_pymc_error_model(self, predictions):
-        """
-        Return the pymc error model, a diagonal-covariance MVN.
-        
-        Parameters
-        ----------
-        predictions : pymc.Variable or function(pymc.Variable)
-            A pymc variable or function on that variable. Either works.
+        Return the pymc error model, where each prediction is iid Bern(p),
+        with the prior pi(p) ~ Unif([0,1]).
         
         Returns
         -------
-        dist : pymc.distributions.distribution.Distribution
-            A pymc distribution instance, containing the error information of
-            the model. Should work in such a way that self.values gives what
-            pymc calls "observables" -- that is, an observed dataset under
-            the model distribution for this function.
+        error_model : dict
+            A dictionary where the keys are names of the variables, and the
+            values are pymc distributions to be included in the model.
         """
-        return pymc.Normal.dist(mu=predictions, sd=self.errors, size=(self.num_data,))
+        prior = pymc.Uniform.dist(upper=1.0, lower=0.0, shape=(self.num_measurements,1))
+        likelihood = pymc.Bernoulli(p=prior, shape=(self.num_measurements,1))
+        error_model = {'prior' : prior, 'likeihood' : likelihood}
+        return error_model
+
