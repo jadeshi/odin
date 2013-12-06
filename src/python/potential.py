@@ -78,8 +78,65 @@ class FlatPotential(Potential):
         self._check_is_traj(traj)
         return np.ones(traj.n_frames)
     
+    
+class ExptPotential(Potential):
+    """
+    An incomplete implementation of a 'Potential' that adds a number of useful 
+    """
         
-class WeightedExptPotential(Potential):
+    def add_experiment(self, expt):
+        """
+        Add an experiment to the potential object.
+        
+        Parameters
+        ----------
+        expt : odin.exptdata.ExptDataBase
+            An experiment.
+        """
+        if not isinstance(expt, exptdata.ExptDataBase):
+            raise TypeError('each of `experiments` must inheret from odin.exptdata.ExptDataBase')
+        self._experiments.append(expt)
+        self._num_measurements += expt.num_data
+        return
+
+        
+    @property
+    def num_measurements(self):
+        return self._num_measurements
+    
+        
+    @property
+    def num_experiments(self):
+        return len(self._experiments)
+    
+        
+    def predictions(self, trajectory):
+        """
+        Method to predict the array `values` for each snapshot in `trajectory`.
+        
+        Parameters
+        ----------
+        trajectory : mdtraj.trajectory
+            A trajectory to predict the experimental values for.
+        
+        Returns
+        -------
+        prediction : ndarray, 2-D
+            The predicted values. Will be two dimensional, 
+            len(trajectory) X len(values).
+        """
+        
+        predictions = np.array([[]])
+        for expt in self._experiments:
+            predictions = np.concatenate([ predictions, expt.predict(trajectory) ], axis=1)
+        
+        assert predictions.shape[0] == trajectory.n_frames
+        assert len(predictions.shape) == 2
+        
+        return predictions
+    
+        
+class WeightedExptPotential(ExptPotential):
     """
     This class implements a potential of the form:
     
@@ -134,10 +191,7 @@ class WeightedExptPotential(Potential):
         expt : odin.exptdata.ExptDataBase
             An experiment.
         """
-        if not isinstance(expt, exptdata.ExptDataBase):
-            raise TypeError('each of `experiments` must inheret from odin.exptdata.ExptDataBase')
-        self._experiments.append(expt)
-        self._num_measurements += expt.num_data
+        super(self, WeightedExptPotential).add_experiment(expts)
         self._weights = np.concatenate([ self._weights, np.ones(expt.num_data) ])
         assert len(self._weights) == self._num_measurements
         return
@@ -146,16 +200,6 @@ class WeightedExptPotential(Potential):
     @property
     def weights(self):
         return self._weights
-    
-        
-    @property
-    def num_measurements(self):
-        return self._num_measurements
-    
-        
-    @property
-    def num_experiments(self):
-        return len(self._experiments)
     
         
     def set_all_weights(self, weights):
@@ -200,30 +244,3 @@ class WeightedExptPotential(Potential):
         
         return self._weights[start:end]
     
-        
-    def predictions(self, trajectory):
-        """
-        Method to predict the array `values` for each snapshot in `trajectory`.
-        
-        Parameters
-        ----------
-        trajectory : mdtraj.trajectory
-            A trajectory to predict the experimental values for.
-        
-        Returns
-        -------
-        prediction : ndarray, 2-D
-            The predicted values. Will be two dimensional, 
-            len(trajectory) X len(values).
-        """
-        
-        predictions = np.array([[]])
-        for expt in self._experiments:
-            predictions = np.concatenate([ predictions, expt.predict(trajectory) ], axis=1)
-        
-        assert predictions.shape[0] == trajectory.n_frames
-        assert len(predictions.shape) == 2
-        
-        return predictions
-    
-        
