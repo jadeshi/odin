@@ -13,12 +13,17 @@ logger = logging.getLogger(__name__)
 
 import abc
 
-import pymc
 import numpy as np
 import IPython as ip
 
 from odin import potential
 from odin import utils
+
+try:
+    import pymc
+except ImportError as e:
+    logger.debug(e)
+    PYMC_INSTALLED = False
 
 try:
     from simtk.openmm import app

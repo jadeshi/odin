@@ -9,14 +9,19 @@ import os
 import abc
 from glob import glob
 
-import pymc
 import numpy as np
 from mdtraj import io
 
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
- 
+
+try:
+    import pymc
+except ImportError as e:
+    logger.debug(e)
+    PYMC_INSTALLED = False
+
 
 class ExptDataBase(object):
     """
