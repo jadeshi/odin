@@ -191,7 +191,7 @@ class WeightedExptPotential(ExptPotential):
         expt : odin.exptdata.ExptDataBase
             An experiment.
         """
-        super(self, WeightedExptPotential).add_experiment(expts)
+        super(WeightedExptPotential, self).add_experiment(expt)
         self._weights = np.concatenate([ self._weights, np.ones(expt.num_data) ])
         assert len(self._weights) == self._num_measurements
         return
