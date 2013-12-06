@@ -17,7 +17,7 @@ Various parsers:
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
-# logger.setLevel('DEBUG')
+logger.setLevel('DEBUG')
 
 import abc
 import inspect
@@ -37,7 +37,7 @@ try:
 except ImportError as e:
     FABIO_IMPORTED = False
 
-
+import matplotlib.pyplot as plt
 
 # ----- ABCs
 
@@ -95,7 +95,8 @@ class SingleShotBase(object):
                     mask = None
                 else:
                     mask = self.mask
-                center = find_center(self.intensities, mask=mask, pix_res=0.01)
+                center = find_center(self.intensities, mask=mask, pix_res=0.1, 
+                                     transpose_output=True)
         else:
             center = np.array(self.intensities_shape) / 2.0
         return center
@@ -808,7 +809,8 @@ class CheetahCXI(CXIdb, MultiShotBase):
         return flat_intensities
         
         
-def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=25):
+def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
+                transpose_output=False):
     """
     Locates the center of an image of a circle.
     
@@ -857,7 +859,7 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=25):
         initial_guess = np.array(image2d.shape) / 2.0
 
     # generate a radial grid
-    num_phi = 360
+    num_phi = 2048
     phi = np.linspace(0.0, 2.0 * np.pi * (float(num_phi-1)/num_phi), num=num_phi)
     r   = np.arange(pix_res, np.min([x_size/3., y_size/3.]), pix_res)
     num_r = len(r)
@@ -870,6 +872,11 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=25):
     ri = interpolation.map_coordinates(image2d, [rx + initial_guess[0], 
                                                  ry + initial_guess[1]], order=1)
     a = np.mean( ri.reshape(num_r, num_phi), axis=1 )
+
+    #plt.figure()
+    #plt.plot(a)
+    #plt.show()
+
     rind_max = np.argmax(a)
 
     rlow  = max([0,     rind_max - window])
@@ -895,8 +902,14 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=25):
         return -1.0 * m
 
     logger.debug('optimizing center position')
-    center = optimize.fmin_powell(objective, initial_guess, xtol=pix_res, disp=0)
+    #center = optimize.fmin(objective, initial_guess, xtol=pix_res, disp=0)
+    rranges = (slice(initial_guess[0]-window, initial_guess[0]+window, pix_res),
+              slice(initial_guess[1]-window, initial_guess[1]+window, pix_res))
+    center = optimize.brute(objective, rranges, finish=optimize.fmin)
     logger.debug('Optimal center: %s (Delta: %s)' % (center, initial_guess-center))
 
-    return center
+    if transpose_output:
+        return (center[1], center[0])
+    else:
+        return center
 
