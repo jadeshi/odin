@@ -7,7 +7,7 @@ Classes, methods, functions for use with xray scattering experiments.
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
-#logger.setLevel('DEBUG')
+# logger.setLevel('DEBUG')
 
 import os
 import cPickle
@@ -1229,7 +1229,7 @@ class Shotset(object):
         for i,itx in enumerate(self.intensities_iter):
             means += itx
             if shot_cutoff != None:
-                if i == shot_cutoff:
+                if i-1 == shot_cutoff:
                     break
         means /= float(i+1)
         logger.debug('Computed mean pixel values for %d shots' % (i+1,))
@@ -1238,7 +1238,7 @@ class Shotset(object):
         for i,itx in enumerate(self.intensities_iter):
             vrcns += np.square(itx - means)
             if shot_cutoff != None:
-                if i == shot_cutoff:
+                if i-1 == shot_cutoff:
                     break
         vrcns /= float(i+1)
         logger.debug('Computed variance pixel values for %d shots' % (i+1,))
@@ -1255,10 +1255,10 @@ class Shotset(object):
 
         # if we don't have a mask already make one
         if self.mask == None:
-            self.mask = mm
+            self.mask = np.logical_not(mm)
         else:
-            self.mask *= mm
-        self.mask *= vm
+            self.mask *= np.logical_not(mm)
+        self.mask *= np.logical_not(vm)
             
         assert self.mask.dtype == np.bool
 
@@ -1553,6 +1553,8 @@ class Shotset(object):
             polar_intensities_output.append( shot_pi.reshape(1, num_q, num_phi) )
             
         logger.info('... complete')
+        logger.debug('Masked polar pixels: %d of %d' % \
+                     (np.sum(np.logical_not(polar_mask)), np.product(polar_mask.shape)))
             
         return polar_mask
 
@@ -1769,6 +1771,7 @@ class Shotset(object):
                               
         # the easy way : keep everything in memory
         if not rings_filename:
+            logger.debug('\tconverting to rings in memory...')
             
             # polar_intensities_output=None automatically generates an array for
             # the output downstream
@@ -1779,6 +1782,7 @@ class Shotset(object):
             
         # the good way : lazy load/write in chunks
         elif type(rings_filename) == str:
+            logger.debug('\tconverting to rings on disk...')
             
             if not rings_filename.endswith('.ring'):
                 rings_filename += '.str'
@@ -1815,8 +1819,15 @@ class Shotset(object):
             
         else:
             raise ValueError('`rings_filename` must be {None, str}')
-            
 
+        if pm != None:
+            logger.debug('polar mask: %d pixels active' % np.sum(pm))
+            logger.debug('            %d pixels masked' % np.sum(1-pm))
+            logger.debug(pm)
+        else:
+            logger.debug('no polar mask')
+            assert self.mask == None
+            
         return ret_val
 
 
@@ -2132,6 +2143,8 @@ class Shotset(object):
             else:
                 logger.debug('mask object taken from passed kwarg')
                 pass # mask = mask
+            logger.debug('Masked pixels: %d/%d' % (np.sum(np.logical_not(mask)), 
+                                                   np.product(mask.shape)))
  
         else:
             raise IOError('Cannot understand files with extension: %s, can only'
