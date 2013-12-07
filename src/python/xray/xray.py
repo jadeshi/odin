@@ -1195,7 +1195,75 @@ class Shotset(object):
     @staticmethod
     def num_phi_to_spacing(num_phi):
         return 2.0*np.pi / float(num_phi)
+    
+        
+    def augment_mask(self, first_moment_cutoff=5.0, second_moment_cutoff=3.0,
+                     shot_cutoff=100):
+        """
+        Add to a shotset's mask by masking:
+        (1) pixels w/mean far from the norm
+        (2) pixels w/variance far from the norm
 
+        Parameters
+        ----------
+        first_moment_cutoff : float
+            If the pixel's mean is more than this number of standard deviations 
+            from the mean, then it is masked.
+
+        second_moment_cutoff : float
+            If the pixel's variance is more than this number of standard  
+            deviations from the mean (variance), then it is masked.
+
+        shot_cutoff : int
+            Use statistics computed from a subset of the data, specifically the
+            first `shot_cutoff`-th shots. Makes applying the mask faster if 
+            you've got a lot of data. If `None`, use all the data. Default=100.
+
+        Notes
+        -----
+        To save these changes, you have to save the shotset again.
+        """
+
+        # first, loop over all the data and compute the mean/variance for each px
+        means = np.zeros(self.detector.num_pixels)
+        for i,itx in enumerate(self.intensities_iter):
+            means += itx
+            if shot_cutoff != None:
+                if i == shot_cutoff:
+                    break
+        means /= float(i+1)
+        logger.debug('Computed mean pixel values for %d shots' % (i+1,))
+
+        vrcns = np.zeros(self.detector.num_pixels)
+        for i,itx in enumerate(self.intensities_iter):
+            vrcns += np.square(itx - means)
+            if shot_cutoff != None:
+                if i == shot_cutoff:
+                    break
+        vrcns /= float(i+1)
+        logger.debug('Computed variance pixel values for %d shots' % (i+1,))
+
+        # use these values w/passed limits to add to the mask
+        mean_sigma = np.std(means)
+        vrcn_sigma = np.std(vrcns)
+        
+        mm = (np.abs(means - means.mean()) > (mean_sigma * first_moment_cutoff))
+        vm = (np.abs(vrcns - vrcns.mean()) > (vrcn_sigma * second_moment_cutoff))
+        
+        logger.info('Masked %d and %d pixels (of %d total) due to mean/variance'
+                    ' cutoffs respectively' % (np.sum(mm), np.sum(vm), self.num_pixels))
+
+        # if we don't have a mask already make one
+        if self.mask == None:
+            self.mask = mm
+        else:
+            self.mask *= mm
+        self.mask *= vm
+            
+        assert self.mask.dtype == np.bool
+
+        return
+    
 
     def assemble_image(self, shot_index=None, num_x=None, num_y=None):
         """
