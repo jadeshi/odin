@@ -1246,13 +1246,19 @@ class Shotset(object):
         # use these values w/passed limits to add to the mask
         mean_sigma = np.std(means)
         vrcn_sigma = np.std(vrcns)
+        
+        mm = (np.abs(means - means.mean()) > (mean_sigma * first_moment_cutoff))
+        vm = (np.abs(vrcns - vrcns.mean()) > (vrcn_sigma * second_moment_cutoff))
+        
+        logger.info('Masked %d and %d pixels (of %d total) due to mean/variance'
+                    ' cutoffs respectively' % (np.sum(mm), np.sum(vm), self.num_pixels))
 
         # if we don't have a mask already make one
         if self.mask == None:
-            self.mask = (np.abs(means - means.mean()) > (mean_sigma * first_moment_cutoff))
+            self.mask = mm
         else:
-            self.mask *= (np.abs(means - means.mean()) > (mean_sigma * first_moment_cutoff))
-        self.mask *= (np.abs(vrcns - vrcns.mean()) > (vrcn_sigma * second_moment_cutoff))
+            self.mask *= mm
+        self.mask *= vm
             
         assert self.mask.dtype == np.bool
 
