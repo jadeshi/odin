@@ -17,7 +17,7 @@ Various parsers:
 import logging
 logging.basicConfig()
 logger = logging.getLogger(__name__)
-logger.setLevel('DEBUG')
+# logger.setLevel('DEBUG')
 
 import abc
 import inspect
@@ -37,7 +37,6 @@ try:
 except ImportError as e:
     FABIO_IMPORTED = False
 
-import matplotlib.pyplot as plt
 
 # ----- ABCs
 
