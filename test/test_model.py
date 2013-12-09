@@ -36,35 +36,42 @@ class TestMaxEntEnsembleModel(object):
                    
     # first pass : all smoke tests
     # need to make them real tests...
-                                
+    @skip
     def test_snapshot_predictions(self):
         p = self.meem.snapshot_predictions(self.confs)
         print p
         
+    @skip
     def test_probx_lambda(self):
         probs = self.meem._probx_lambda(self.confs, self.lambdas)
         print probs
         
+    @skip
     def test_observable_predictions(self):
         ops = self.meem.observable_predictions(self.lambdas)
         print ops
         
+    @skip
     def test_observable_predictions_single_expt(self):
         ops = self.meem.observable_predictions(self.lambdas, expt_index=0)
         print ops
-        
+    
+    @skip
     def test_observable_prediction_covariance(self):
         cov = self.meem.observable_prediction_covariance(self.lambdas)
         print cov
         
+    @skip
     def test_observable_prediction_covariance_single_expt(self):
         cov = self.meem.observable_prediction_covariance(self.lambdas, expt_index=0)
         print cov
         
+    @skip
     def test_lambda_posterior_model(self):
         m = self.meem._lambda_posterior_model()
         print m.vars
         
+    @skip
     def test_sample_lambda_posterior(self):
         l_samples = self.meem.sample_lambda_posterior(100)
         print l_samples
