@@ -94,8 +94,9 @@ class SingleShotBase(object):
                     mask = None
                 else:
                     mask = self.mask
-                center = find_center(self.intensities, mask=mask, pix_res=0.1, 
-                                     transpose_output=True)
+                center = find_center(self.intensities, mask=mask, pix_res=0.1)
+            else:
+                center = np.array(self.intensities_shape) / 2.0
         else:
             center = np.array(self.intensities_shape) / 2.0
         return center
@@ -808,8 +809,7 @@ class CheetahCXI(CXIdb, MultiShotBase):
         return flat_intensities
         
         
-def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
-                transpose_output=False):
+def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5):
     """
     Locates the center of an image of a circle.
     
@@ -907,8 +907,5 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
     center = optimize.brute(objective, rranges, finish=optimize.fmin)
     logger.debug('Optimal center: %s (Delta: %s)' % (center, initial_guess-center))
 
-    if transpose_output:
-        return (center[1], center[0])
-    else:
-        return center
+    return center
 
