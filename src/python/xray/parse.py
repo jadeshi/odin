@@ -809,7 +809,8 @@ class CheetahCXI(CXIdb, MultiShotBase):
         return flat_intensities
         
         
-def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5):
+def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
+                polarization_correction=True):
     """
     Locates the center of an image of a circle.
     
@@ -894,6 +895,10 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5)
         # interpolate the image
         logger.debug('Current center: (%.2f, %.2f)' % ( float(center[0]), float(center[1]) ) )
         ri = interpolation.map_coordinates(image2d, [rx + center[0], ry + center[1]], order=1)
+        
+        if polarization_correction: # remove 2nd Fourier component
+            ri -= (np.sum(ri * np.sin(2.0 * phi)) / float(num_phi)) * np.sin(2.0 * phi)
+            ri -= (np.sum(ri * np.cos(2.0 * phi)) / float(num_phi)) * np.cos(2.0 * phi)
 
         a = np.mean( ri.reshape(num_r, num_phi), axis=1 )
         m = np.max(a)
