@@ -31,6 +31,9 @@ import numpy as np
 from scipy import optimize
 from scipy.ndimage import interpolation
 
+import matplotlib.pyplot as plt
+import matplotlib.patches as plt_patches
+
 try:
     import fabio
     FABIO_IMPORTED = True
@@ -69,13 +72,24 @@ class SingleShotBase(object):
         vertical direction in the lab frame.
         """
         if not hasattr(self, '_center'):
-            self._center = self._find_center()
+            self._center = self.find_center()
         return self._center
     
         
-    def _find_center(self):
+    def find_center(self, image=None, **options):
         """
         Find the center of any Bragg rings (aka the location of the x-ray beam).
+
+        Parameters
+        ----------
+        image : ndarray
+            A two-dimensional array of the image to use for centering. The
+            default is to just use the intesities from the image. However, we
+            provide a mechanism to pass any image, since one may want to pass an
+            average.
+            
+        options : dict
+            kwargs for parse.find_center()
 
         Returns
         -------
@@ -88,17 +102,22 @@ class SingleShotBase(object):
         self.center
         self.corner
         """
+        if image == None:
+            image = self.intensities
+        
         if hasattr(self, 'autocenter'):
             if self.autocenter:
                 if not hasattr(self, 'mask'):
                     mask = None
                 else:
                     mask = self.mask
-                center = find_center(self.intensities, mask=mask, pix_res=0.1)
+                center = find_center(image, mask=mask, **options)
             else:
-                center = np.array(self.intensities_shape) / 2.0
+                center = np.array(image.shape) / 2.0
         else:
-            center = np.array(self.intensities_shape) / 2.0
+            center = np.array(image.shape) / 2.0
+            
+        self._center = center
         return center
     
     
@@ -809,10 +828,14 @@ class CheetahCXI(CXIdb, MultiShotBase):
         return flat_intensities
         
         
-def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
-                polarization_correction=True):
+def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=15,
+                cutoff=0, width_weight=0.0, plot=False):
     """
     Locates the center of an image of a circle.
+    
+    This algorithm aims to find the center of a circle by searching for the
+    center point that maximizes the height and thinness of the projection of
+    the image into radial coordinates.
     
     Parameters
     ----------
@@ -834,15 +857,31 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
         converge.
 
     window : int
-        The size, in pix_res units, of the search area for the algorithm. If the
+        The size, in pixel units, of the search area for the algorithm. If the
         default settings don't seem to find the center, try giving a better
         `initial_guess` as to the center and increase this value a bit.
+        
+    cutoff : int
+        Disard an area of this radius (in pixel units) from the center of the
+        image for center finding. Very useful if e.g. there is some high
+        intensity small angle scattering at the center of the image, but
+        a powder ring you want to use for centering is at higher angles.
+        
+    width_weight : float
+        The relative weight of the peak width in the optimization.
+        
+    plot : bool
+        Whether or not to plot the progress/activity of the algorithm. Great
+        way to check things are working the way you think they are!
 
     Returns
     -------
     center : 2-tuple of floats
         The (x,y) position of the center, in pixel units.
     """
+
+    # HARDWIRED OPTION
+    num_phi=2048 # seems to work well
 
     logger.info('Finding the center of the strongest ring...')
 
@@ -859,7 +898,6 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
         initial_guess = np.array(image2d.shape) / 2.0
 
     # generate a radial grid
-    num_phi = 2048
     phi = np.linspace(0.0, 2.0 * np.pi * (float(num_phi-1)/num_phi), num=num_phi)
     r   = np.arange(pix_res, np.min([x_size/3., y_size/3.]), pix_res)
     num_r = len(r)
@@ -873,11 +911,11 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
                                                  ry + initial_guess[1]], order=1)
     a = np.mean( ri.reshape(num_r, num_phi), axis=1 )
 
-    #plt.figure()
-    #plt.plot(a)
-    #plt.show()
+    # exclude rings near the center of the image
+    exclude = np.ones(len(a))
+    exclude[:int(cutoff/pix_res)] = 0.0
 
-    rind_max = np.argmax(a)
+    rind_max = np.argmax(a * exclude)
 
     rlow  = max([0,     rind_max - window])
     rhigh = min([num_r, rind_max + window])
@@ -886,6 +924,14 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
     rx = np.repeat(r[rlow:rhigh], num_phi) * np.cos(np.tile(phi, num_r))
     ry = np.repeat(r[rlow:rhigh], num_phi) * np.sin(np.tile(phi, num_r))
 
+    logger.debug('Plotting: %s' % str(plot))
+    if plot:
+        plt.ion()
+        plt.figure(figsize=(12,6))
+        axL = plt.subplot(121)
+        axR = plt.subplot(122)
+        axL.imshow(image2d, interpolation=None, vmax=image2d.mean()+3.0*image2d.std())
+        
 
     def objective(center):
         """
@@ -896,21 +942,46 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=2.5,
         logger.debug('Current center: (%.2f, %.2f)' % ( float(center[0]), float(center[1]) ) )
         ri = interpolation.map_coordinates(image2d, [rx + center[0], ry + center[1]], order=1)
         
-        if polarization_correction: # remove 2nd Fourier component
-            ri -= (np.sum(ri * np.sin(2.0 * phi)) / float(num_phi)) * np.sin(2.0 * phi)
-            ri -= (np.sum(ri * np.cos(2.0 * phi)) / float(num_phi)) * np.cos(2.0 * phi)
-
+        # find the maximum
         a = np.mean( ri.reshape(num_r, num_phi), axis=1 )
         m = np.max(a)
+        mi = np.argmax(a)
+        
+        # fit a parabola to the top of the peak and favor skinny peaks
+        # the more negative p is, the better
+        p0 = -10.0
+        x = np.arange(len(a))
+        errfunc = lambda p : p * np.power(x - float(mi), 2) + m - a
+        p_opt, lsq_success = optimize.leastsq(errfunc, p0)
+        
+        if plot:
+            
+            patch_ring = plt_patches.Circle(center[::-1], rind_max*pix_res + mi, fill=False, lw=1, color='orange')
+            axL.add_patch(patch_ring)
+            patch_center = plt_patches.Circle(center[::-1], 25, fill=True, lw=1, color='orange')
+            axL.add_patch(patch_center)
+            
+            axR.cla()
+            axR.scatter(x, a)
 
-        return -1.0 * m
+            plt.plot(p_opt * np.power(x - float(mi), 2) + m)
+            plt.draw()
+            
+            patch_ring.remove()
+            patch_center.remove()
+        
+        obj = -1.0 * m
+        if width_weight and (lsq_success == 1):
+            obj += width_weight * p_opt
+        
+        return  obj
+        
+    if plot: plt.ioff()
 
-    logger.debug('optimizing center position')
-    #center = optimize.fmin(objective, initial_guess, xtol=pix_res, disp=0)
-    rranges = (slice(initial_guess[0]-window, initial_guess[0]+window, pix_res),
-              slice(initial_guess[1]-window, initial_guess[1]+window, pix_res))
-    center = optimize.brute(objective, rranges, finish=optimize.fmin)
-    logger.debug('Optimal center: %s (Delta: %s)' % (center, initial_guess-center))
+    logger.debug('optimizing center position at %f pixel resolution' % pix_res)
+    center = optimize.fmin(objective, initial_guess, xtol=pix_res, disp=0)
+    logger.info('Optimal center: %s (Delta: %s)' % (center, initial_guess-center))
+    
 
     return center
 
