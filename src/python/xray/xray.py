@@ -2050,6 +2050,162 @@ class Shotset(object):
         
         
     @classmethod
+    def from_sacla(cls, filename, run=None, mask=None):
+        """
+        Read a SACLA octal HDF5 file and return it as a Shotset object.
+
+        Parameters
+        ----------
+        filename : str
+            The path to the file on disk.
+
+        run : int
+            The run number to read. Will only read that specific run and ignore
+            all others. If run=`None`, will choose the first run only.
+
+        mask : np.ndarray, int
+            A mask to employ.
+
+        Returns
+        -------
+        shotset : odin.xray.Shotset
+            A Shotset representation of the SACLA h5 file.
+        """
+
+        bg = BasisGrid()
+
+        f = tables.File(filename, 'r')
+        logger.info('Reading file: %s' % filename)
+
+        # determine which run to use
+        runs_in_file = f.root.file_info.run_number_list.read()
+        if run:
+            if not run in runs_in_file:
+                raise ValueError('Run %d not contained in this SACLA file \
+                                  (available: %s)' % (run, str(runs_in_file)))
+                f.close()
+        else:
+            run = runs_in_file[0]
+        logger.info('Runs contained in this file: %s' % str(runs_in_file))
+        logger.info('Reading only run: %d' % run)
+
+        # find out what shots are in the file
+        tag_number_list = f.get_node('/run_%d/event_info/tag_number_list' % run).read()
+        remove_list = []
+        for i,tag in enumerate(tag_number_list):
+            try:
+                f.get_node('/run_%d/detector_2d_1/tag_%d' % (run, tag))
+            except:
+                logger.debug('tag_number_list reports tag %d is in file, but no '
+                             'data for that tag found on detector panel 1. Removing'
+                             ' it.' % tag)
+                remove_list.append(i)
+        logger.debug('Removing tags: %s' % str(remove_list))
+        tag_number_list = np.delete(tag_number_list, remove_list)    
+        logger.debug('Tags in file: %s' % str(tag_number_list))
+
+        # make sure this is an octal image
+        try:
+            f.get_node('/run_%d/detector_2d_9/' % run)
+        except:
+            raise IOError('File %s does not appear to be a SACLA octal detector image' % filename)
+            f.close()
+
+        # find out the x-ray energy
+        # WORK :: look for: photon_energy_in_eV
+        energy_node = None
+        for n in f.walk_nodes('/'):
+            if str(n).find('photon_energy_in_eV') > -1:
+                energy_node = str(n).split(' ')[0]
+                break
+        if not energy_node:
+            raise IOError('Could not locate a leaf named `photon_energy_in_eV` in '
+                          'file %s -- cannot proceed.' % filename)
+        else:            
+            E = f.get_node(energy_node).read() / 1000.
+            mean_energy = E[np.logical_not(np.isnan(E))].mean()
+            # TJL note to self: if you include per-shot energies, change the below
+            beam = Beam(energy=mean_energy)
+            logger.debug('Energy: %f' % mean_energy)
+
+        # the SACLA OCTAL GEOMETRY is nicely presented in the document
+        # MPCCD_octal_image_assembly_algorithm_ver1.0.pdf
+        # by: Takashi Kameshima <kameshima@spring8.or.jp>
+        # this function is based on the contents of that document.
+        # NOTE: ALL UNITS ARE IN MICROMETERS
+
+        for panel in range(1,9):
+
+            # All the SACLA octal panels are positioned with respect to an origin at
+            # (0,0) -- the coordinates describing the panel give the center of the
+            # first pixel in the data stream. This corresponds to the odin p-vector.
+            # This position is decribed by a set of default coordinates as well as a
+            # translation due to the detector aperature size/position.
+
+            base = '/run_%d/detector_2d_%d/detector_info/' % (run, panel)
+            px_size = f.get_node(base + 'pixel_size_in_micro_meter').read()
+
+            xyz = f.get_node(base + 'detector_coordinate_in_micro_meter').read()
+            x = float(xyz[0])
+            y = float(xyz[1])
+
+            theta = float(np.radians(f.get_node(base + 'detector_stage_direction_in_degree').read()))
+            w = float(f.get_node(base + 'detector_stage_shift_weight').read())
+            L = float(f.get_node(base + 'manipulator_position_in_micro_meter' % tag_number_list[0]).read())
+
+            logger.debug('Pixel size: %s' % str(px_size))
+            logger.debug('x: %f, y: %f, theta: %f, w: %f, L: %f' % (x, y, theta, w, L))
+
+            X = x + np.cos(theta) * w * L
+            Y = y + np.sin(theta) * w * L
+
+            pv = np.zeros(3)
+            pv[0] = X
+            pv[1] = Y
+            pv[2] = xyz[2]
+
+            # All the panels are shape (1024, 512), corresponding to (slow, fast)
+            # directions. The default s/f-vectors are oriented prefectly along the 
+            # -y,+x axes respectively. These vectors are assumed to be perpendicular
+            # to the beam. They are rotated counter clockwise (viewed from upstream)
+            # by a fixed rotation angle provided in the file.
+
+            sv = np.zeros(3)
+            sv[0] = np.cos(theta + (3.0 * np.pi / 2.0)) * px_size[0]
+            sv[1] = np.sin(theta + (3.0 * np.pi / 2.0)) * px_size[0]
+
+            fv = np.zeros(3)
+            fv[0] = np.cos(theta) * px_size[1]
+            fv[1] = np.sin(theta) * px_size[1]
+
+            bg.add_grid(pv, sv, fv, (1024, 512))
+
+        # generate a detector object
+        dtc = Detector(bg, beam)
+
+        # now we need to construct an iterator over the shot data
+        def shotiter():
+            """
+            Yield a linear array of data for each shot
+            """
+            data = np.zeros(1024 * 512 * 8, dtype=np.float32)
+            for tag in tag_number_list:
+                logger.debug('Read data for tag: %d' % tag)
+                for panel in range(1,9):
+                    node = '/run_%d/detector_2d_%d/tag_%d/detector_data' % (run, panel, tag)
+                    srt = 1024 * 512 * (panel-1)
+                    end = 1024 * 512 * panel
+                    data[srt:end] = f.get_node(node).read().flatten()
+                yield data
+
+        # and finally put the detector & data together into a Shotset
+        formatted_data = _ArrayCollection(shotiter, len(tag_number_list), 1024 * 512 * 8)
+        ss = cls(formatted_data, dtc, mask=mask)
+
+        return ss
+    
+        
+    @classmethod
     def fromfiles(cls, list_of_files, detector=None, mask=None):
         """
         Convert a bunch of files containing x-ray exposure information into
@@ -3511,7 +3667,33 @@ class IntensitiesCollection(object):
         b/c downstream stuff assumes this may be important
         """
         pass
+
         
+class _ArrayCollection(IntensitiesCollection):
+    """
+    The dumbest class ever. Is simply a container for a generator that yields
+    intensity data.
+    """
+
+    def __init__(self, generator, num_shots, num_pixels):
+        self._generator = generator
+        self._num_shots = num_shots
+        self._num_pixels = num_pixels
+        return
+
+    @property
+    def num_shots(self):
+        return self._num_shots
+
+    @property
+    def shape(self):
+        return (self._num_shots, self._num_pixels)
+
+    def iterdata(self):
+        return self._generator()
+
+    def close(self):
+        pass   
     
         
 class _FileIterator(IntensitiesCollection):

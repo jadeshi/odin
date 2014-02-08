@@ -826,7 +826,7 @@ class CheetahCXI(CXIdb, MultiShotBase):
                 flat_intensities[flat_start+n_ASIC_pixels:flat_start+n_ASIC_pixels*2] = sec2.flatten()
 
         return flat_intensities
-        
+    
         
 def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=15,
                 cutoff=0, width_weight=0.0, plot=False):
@@ -984,4 +984,5 @@ def find_center(image2d, mask=None, initial_guess=None, pix_res=0.1, window=15,
     
 
     return center
+
 
