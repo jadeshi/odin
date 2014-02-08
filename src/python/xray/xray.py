@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 # logger.setLevel('DEBUG')
 
 import os
+import abc
 import cPickle
 import tables
 import multiprocessing
@@ -979,12 +980,14 @@ class Shotset(object):
         # this should *not* be an elif
         if type(intensities) in [np.ndarray, 
                                  tables.earray.EArray,
-                                 tables.carray.CArray,
-                                 _FileIterator]:
+                                 tables.carray.CArray]:
+            self._intensities = intensities
+        elif isinstance(intensities, IntensitiesCollection):
             self._intensities = intensities
         else:
             raise TypeError('`intensities` must be type: {ndarray, EArray, '
-                            'CArray, _FileIterator}. Got %s' % type(intensities))
+                            'CArray, IntensitiesCollection}. '
+                            'Got %s' % type(intensities))
 
 
         # check that the data dimensions work out
@@ -1037,7 +1040,7 @@ class Shotset(object):
             if hasattr(self._file_handle, 'close'):
                 logger.debug('Shotset.close :: closing file handle')
                 self._file_handle.close()
-        if self._intensities_type == 'fileiterator':
+        if self._intensities_type == 'IntensitiesCollection':
             self._intensities.close()
         return
     
@@ -1052,8 +1055,8 @@ class Shotset(object):
         elif type(self._intensities) in [tables.earray.EArray,
                                          tables.carray.CArray]:
             itype = 'tables'
-        elif type(self._intensities) == _FileIterator:
-            itype = 'fileiterator'
+        elif isinstance(self._intensities, IntensitiesCollection):
+            itype = 'IntensitiesCollection'
         else:
             raise RuntimeError('invalid type in self._intensities')
             
@@ -1113,8 +1116,8 @@ class Shotset(object):
                                'will set your buffer to a single shot.' % self._intensities.nrowsinbuf)
             i_iter = self._intensities.iterrows()
             i_iter.nrow = -1 # reset the iterator to the start
-        elif self._intensities_type == 'fileiterator':
-            i_iter = self._intensities.iterfiles()
+        elif self._intensities_type == 'IntensitiesCollection':
+            i_iter = self._intensities.iterdata()
             self._intensities.current_file = 0 # reset the iterator to the start
         else:
             raise RuntimeError('invalid type in self._intensities')
@@ -3475,7 +3478,43 @@ class Rings(object):
         return
         
         
-class _FileIterator(object):
+class IntensitiesCollection(object):
+    """
+    An abstract base class specifying the necessary components of a custom
+    container for intensity data.
+    """
+    
+    __metaclass__ = abc.ABCMeta
+    
+    @abc.abstractproperty
+    def num_shots(self):
+        pass
+    
+    @abc.abstractproperty
+    def shape(self):
+        """
+        num_shots x num_pixels
+        """
+        pass
+        
+    @abc.abstractmethod
+    def iterdata(self):
+        """
+        Should be a generator that yields linear arrays of intensity data.
+        """
+        pass
+        
+    @abc.abstractmethod
+    def close(self):
+        """
+        Doesn't really need to be implemented, but here as a placeholder
+        b/c downstream stuff assumes this may be important
+        """
+        pass
+        
+    
+        
+class _FileIterator(IntensitiesCollection):
     """
     An object designed to mimic the pytables iteration interface, but really
     consist of many files on disk. Serves up intensity data specifically for
@@ -3507,7 +3546,7 @@ class _FileIterator(object):
         return
     
     @property
-    def num_files(self):
+    def num_shots(self):
         return len(self.files)
         
     @property
@@ -3515,13 +3554,13 @@ class _FileIterator(object):
         """
         shots x pixels
         """
-        return (self.num_files, self.seed_shot.num_pixels)
+        return (self.num_shots, self.seed_shot.num_pixels)
     
-    def iterfiles(self):
+    def iterdata(self):
         """
         An iterator over the intensities in each file.
         """
-        while self.current_file < self.num_files:
+        while self.current_file < self.num_shots:
             shot = self.reader(self.files[self.current_file])
             self.current_file += 1
             yield shot.intensities_1d
