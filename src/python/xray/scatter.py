@@ -1,4 +1,3 @@
-
 """
 Library for performing simulations of x-ray scattering experiments.
 """
@@ -260,6 +259,8 @@ def sph_hrm_coefficients(trajectory, weights=None, q_magnitudes=None,
     spatial correlation of scattering fluctuations. Macromolecules 10, 927–934 
     (1977).
     """
+    
+    raise NotImplementedError('implementation incomplete')
     
     logger.debug('Projecting image into spherical harmonic basis...')
     
