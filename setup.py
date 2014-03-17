@@ -203,122 +203,20 @@ class custom_build_ext(build_ext):
         customize_compiler_for_nvcc(self.compiler)
         build_ext.build_extensions(self)
 
-# -----------------------------------------------------------------------------
-# INSTALL C/C++ EXTENSIONS
-# gpuscatter, cpuscatter, interp
-# 
 
+# ------------------------------------------------------------------------------
 
-# openmp
-if '--no-openmp' in sys.argv[2:]:
-    sys.argv.remove('--no-openmp')
-    omp_compile = ['-DNO_OMP']
-    omp_link    = []
-    print_warning('set --no-openmp, disabling OPENMP support')
-else:
-    omp_compile = ['-fopenmp']
-    omp_link    = ['-lgomp']
-
-
-if CUDA:
-    print "Attempting to install GPU functionality"
-    gpuscatter = Extension('odin._gpuscatter',
-                        sources=['src/scatter/gpuscatter_wrap.pyx', 'src/scatter/_gpuscatter.cu'],
-                        extra_compile_args={'gcc': ['-O3', '-fPIC', '-Wall'] + omp_compile,
-                                            'g++': ['-O3', '-fPIC', '-Wall'] + omp_compile,
-                                            'nvcc': ['-use_fast_math', '-arch=sm_20', '--ptxas-options=-v', 
-                                                     '-c', '--compiler-options', "'-fPIC'"]},
-                        library_dirs=[CUDA['lib64']],
-                        libraries=['cudart'],
-                        runtime_library_dirs=['/usr/lib', '/usr/local/lib', CUDA['lib64']],
-                        extra_link_args = ['-lstdc++', '-lm'] + omp_link,
-                        include_dirs = [numpy_include, 'src/scatter', CUDA['include']],
-                        language='c++')
-
-else:
-    gpuscatter = None
-
-cpuscatter = Extension('odin._cpuscatter',
-                    sources=['src/scatter/cpuscatter_wrap.pyx', 'src/scatter/_cpuscatter.cpp'],
-                    extra_compile_args={'gcc': ['-O3', '-fPIC', '-Wall'] + omp_compile,
-                                        'g++': ['-O3', '-fPIC', '-Wall', '-mmacosx-version-min=10.6'] + omp_compile},
-                    runtime_library_dirs=['/usr/lib', '/usr/local/lib'],
-                    extra_link_args = ['-lstdc++', '-lm'] + omp_link,
-                    include_dirs = [numpy_include, 'src/scatter'],
-                    language='c++')
-                    
-
-misc = Extension('odin.misc_ext',
-                    sources=['src/misc/misc_wrap.pyx', 'src/misc/solidangle.cpp'],
-                    extra_compile_args={'gcc': ['-O3', '-fPIC', '-Wall'] + omp_compile,
-                                        'g++': ['-O3', '-fPIC', '-Wall', '-mmacosx-version-min=10.6'] + omp_compile},
-                    runtime_library_dirs=['/usr/lib', '/usr/local/lib'],
-                    extra_link_args = ['-lstdc++', '-lm'] + omp_link,
-                    include_dirs = [numpy_include, 'src/scatter'],
-                    language='c++')
-
-corr = Extension('odin.corr',
-                     sources=['src/corr/correlate.pyx', 'src/corr/corr.cpp'],
-                     extra_compile_args={'gcc': ['-O3', '-fPIC', '-Wall'] + omp_compile,
-                                         'g++': ['-O3', '-fPIC', '-Wall'] + omp_compile},
-                     runtime_library_dirs=['/usr/lib', '/usr/local/lib'],
-                     extra_link_args = ['-lstdc++', '-lm'],
-                     include_dirs = [numpy_include, 'src/corr'],
-                     language='c++')
-
-
-metadata['packages']     = ['odin', 'odin.scripts', 'odin.xray', 'odin.smfret']
+metadata['packages']     = ['odin', 'odin.scripts', 'odin.smfret']
 metadata['package_dir']  = {'odin' :         'src/python',
                             'odin.scripts' : 'scripts',
-                            'odin.xray'    : 'src/python/xray',
                             'odin.smfret'  : 'src/python/smfret'}
 
-metadata['ext_modules']  = [cpuscatter, misc, corr]
-if gpuscatter:
-    metadata['ext_modules'].append(gpuscatter)
-    
+metadata['ext_modules']  = []    
 metadata['scripts']      = [s for s in glob('scripts/*') if not s.endswith('__.py')]
 metadata['data_files']   = [('reference', glob('./reference/*'))]
 metadata['cmdclass']     = {'build_ext': custom_build_ext}
 
 # ------------------------------------------------------------------------------
-#
-# Finally, print a warning at the *end* of the build if something fails
-#
-
-def print_warnings():
-        
-    if not CUDA_SUCCESS:
-        print 
-        print '*'*65
-        print '* WARNING : CUDA/GPU SUPPORT'
-        print '* --------------------------'
-        print '* Could not install one or more CUDA/GPU features. Look for'
-        print '* warnings in the setup.py output (above) for more details. ODIN'
-        print '* will function without any GPU-acceleration. EVERYTHING WILL STILL'
-        print '* WORK -- just certain things will be a bit slower. Note that for  '
-        print '* successful installation of GPU support, you must have an nVidia'
-        print '* Fermi-class GPU (or better) and the CUDA toolkit installed. See'
-        print '* the nVidia website for more details.'
-        print '*'*65
-        
-    try:
-        import pyfftw
-    except:
-        print 
-        print '*'*65
-        print '* WARNING : PYFFTW SUPPORT'
-        print '* --------------------------'
-        print '* Could not load the pyfftw package, EVERYTHING WILL STILL'
-        print '* WORK -- just certain things will be a bit slower. Install FFTW'
-        print '* and pyfftw if you wish to accelerate any calculation involving '
-        print '* FFTs, most notably correlation computations.'
-        print '* (https://pypi.python.org/pypi/pyFFTW)'
-        print '* (http://www.fftw.org/)'
-        print '*'*65
-     
-    print "\n"
 
 if __name__ == '__main__':
     setup(**metadata) # ** will unpack dictionary 'metadata' providing the values as arguments
-    print_warnings()
