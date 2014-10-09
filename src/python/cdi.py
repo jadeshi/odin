@@ -52,7 +52,7 @@ class CdiPotential(Potential):
         
         energies = np.zeros(trajectory.n_frames)
         
-        for i in range(trajectory.n_frames)
+        for i in range(trajectory.n_frames):
             prediction = scatter.simulate_shot(trajectory[i], 1, self.qxyz,
                                                force_no_gpu=self._no_gpu, 
                                                device_id=self._device_id)

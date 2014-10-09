@@ -278,20 +278,18 @@ class MDMC(object):
         
         # need to figure out how we're going to deal with the traj data -- cant
         # keep it all in memory. Would be good to dump it into a single h5 db
-        reporter = MCReporter(output_target, self.mc_length_increment, 
-                              coordinates=True, time=False, cell=False,
-                              potentialEnergy=False, kineticEnergy=False,
-                              temperature=False, velocities=False,
-                              atomSubset=None)
+        reporter = reporters.HDF5Reporter(output_target, 
+                                          self.mc_length_increment, 
+                                          coordinates=True, time=False, cell=False,
+                                          potentialEnergy=False, kineticEnergy=False,
+                                          temperature=False, velocities=False,
+                                          atomSubset=None)
         self._simulation.reporters.append(reporter)
 
         # perform the actual monte carlo
-        moves_done = 0
         current_energy = self.potential(self.positions)
         
-        while moves_done < num_moves+1:
-
-            logger.debug('%d / %d moves accepted' % (moves_done, num_moves))
+        for mi in range(num_moves):
             
             # step forward in time
             self.total_moves_attempted += 1
