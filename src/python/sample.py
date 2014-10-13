@@ -12,6 +12,7 @@ import mdtraj
 from mdtraj import reporters
 
 from odin.potential import Potential
+from odin import utils
 
 import logging
 logging.basicConfig()
@@ -254,6 +255,16 @@ class MDMC(object):
         self._simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
         
         return
+
+
+    @property
+    def energy(self):
+        xyz = utils.get_simulation_xyz(self._simulation)
+        snapshot = mdtraj.Trajectory(xyz, self.topology)
+        self._prior_energy = self._simulation.context.getState(getEnergy=True).getPotentialEnergy()._value
+        self._potential_energy = self.potential(snapshot)
+        self._total_energy = self._potential_energy + self._prior_energy
+        return self._total_energy
     
         
     def sample(self, num_moves, output_target):
@@ -287,30 +298,37 @@ class MDMC(object):
         self._simulation.reporters.append(reporter)
 
         # perform the actual monte carlo
-        current_energy = self.potential(self.positions)
+        current_energy = self.energy
         
+        logger.debug('PRIOR     POTNT     NEW       CRRNT     ACCPT     RATIO')
         for mi in range(num_moves):
             
             # step forward in time
             self.total_moves_attempted += 1
+            old_pos = self._simulation.context.getState(getPositions=True).getPositions()
             self._simulation.step(self.steps_per_iter)
 
             # accept or reject according to Metropolis
-            new_energy = self.potential( np.array(self._simulation.context.getState(getPositions=True).getPositions()) )
-            
+            new_energy = self.energy
+
             # accept
-            logger.debug('\tcurrent energy: %f' % current_energy)
-            logger.debug('\tnew energy:     %f' % new_energy)
-            if (new_energy < current_energy) or (np.random.rand() < np.exp( (current_energy - new_energy) / (k_boltz * self.temperature)) ):
-                
-                logger.debug('\t\tmove accepted')
+            if (new_energy < current_energy):
+                accept_str = 'Y-lwr' # move accepted, new energy lower
                 self.accepted += 1
-                moves_done += 1
-                self.positions = self._simulation.context.getState(getPositions=True).getPositions()
+                self.positions = utils.get_simulation_xyz(self._simulation)
+                current_energy = new_energy
+
+            elif (np.random.rand() < np.exp( (current_energy - new_energy) / (k_boltz * self.temperature))):
+                accept_str = 'Y-rnd' # move accepted due to random chance
+                self.accepted += 1
+                self.positions = utils.get_simulation_xyz(self._simulation)
+                current_energy = new_energy
                 
             # reject
             else:
-                logger.debug('\t\tmove rejected')
+                accept_str = 'N'
+                self._simulation.context.setPositions(old_pos)
+
                 
             # perform adaptive update on the number of steps performed per attempt
             # to try and get to the `target_accept_percent` acceptance ratio
@@ -323,7 +341,14 @@ class MDMC(object):
                 
             self.steps_per_iter -= self.steps_per_iter % self.mc_length_increment
             self.steps_per_iter = max(self.steps_per_iter, self.mc_length_increment)
-            logger.debug('Current `steps_per_iter`: %d' % self.mc_length_increment) 
+
+            report_str = '%.2e  ' * 4 + '%s  %.2f'
+            logger.debug(report_str % (self._prior_energy,
+                                       self._potential_energy,
+                                       new_energy,
+                                       current_energy,
+                                       accept_str,
+                                       self.accepted_ratio))
         
         # close repoter
         reporter.close()

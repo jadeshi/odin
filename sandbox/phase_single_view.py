@@ -6,6 +6,7 @@ Run this on a machine with a fast nvidia GPU and OpenMM installed.
 
 import mdtraj
 import thor
+from thor import scatter
 
 from odin import cdi
 from odin import sample
@@ -15,8 +16,8 @@ from odin import sample
 #
 test_system = 'ala' # 'ala' OR 'lyz'
 prior       = 'amber99min.xml'
-num_moves   = 10
-sigma       = 1.0 # hmmmm
+num_moves   = 1000
+sigma       = 1000.0 # hmmmm
 # ------------------------------------------
 
 if test_system == 'ala':
@@ -37,9 +38,12 @@ intensities = scatter.simulate_shot(starting_structure, 1, qxyz)
 
 potential = cdi.CdiPotential(intensities, qxyz, sigma)
 
-sampler = MDMC(potential, prior, 
-               starting_structure.top, 
-               starting_structure.xyz[0])
+sampler = sample.MDMC(potential, prior, 
+                      starting_structure.top, 
+                      starting_structure.xyz[0])
                
+sampler.sample(num_moves, 'test_traj.h5')
 
-sampler.sample(num_moves)
+t = mdtraj.load('test_traj.h5')
+t.save_pdb('test_traj.pdb')
+
